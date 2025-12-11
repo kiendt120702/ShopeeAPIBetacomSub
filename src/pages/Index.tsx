@@ -10,11 +10,13 @@ import FlashSaleManagerPanel from '@/components/panels/FlashSaleManagerPanel';
 import ProductInfoPanel from '@/components/panels/ProductInfoPanel';
 import AdsPanel from '@/components/panels/AdsPanel';
 import ShopInfoPanel from '@/components/panels/ShopInfoPanel';
+import ShopPerformancePanel from '@/components/panels/ShopPerformancePanel';
 import UserProfilePanel from '@/components/panels/UserProfilePanel';
+
 import AuthPage from '@/pages/Auth';
 import { cn } from '@/lib/utils';
 
-type MenuId = 'dashboard' | 'shop-info' | 'flash-sale' | 'products' | 'ads' | 'profile';
+type MenuId = 'dashboard' | 'shop-info' | 'flash-sale' | 'products' | 'ads' | 'shop-performance' | 'profile';
 
 interface MenuItem {
   id: MenuId;
@@ -39,6 +41,7 @@ const menuItems: MenuItem[] = [
     icon: <StoreIcon />,
     description: 'Xem thông tin chi tiết shop'
   },
+
   { 
     id: 'flash-sale',
     path: '/flash-sale',
@@ -59,6 +62,13 @@ const menuItems: MenuItem[] = [
     label: 'Sản phẩm', 
     icon: <PackageIcon />,
     description: 'Thông tin chi tiết sản phẩm'
+  },
+  { 
+    id: 'shop-performance',
+    path: '/shop-performance',
+    label: 'Hiệu suất Shop', 
+    icon: <PerformanceIcon />,
+    description: 'Theo dõi hiệu suất và chỉ số shop'
   },
   { 
     id: 'profile',
@@ -111,6 +121,14 @@ function StoreIcon() {
   );
 }
 
+function PerformanceIcon() {
+  return (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+    </svg>
+  );
+}
+
 function UserIcon() {
   return (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -118,6 +136,8 @@ function UserIcon() {
     </svg>
   );
 }
+
+
 
 // Banner kết nối shop cho tài khoản mới
 function ConnectShopBanner({ onConnect, error, isLoading }: { onConnect: () => void; error?: string | null; isLoading?: boolean }) {
@@ -192,10 +212,16 @@ function DashboardPanel({ onNavigate }: { onNavigate: (path: string) => void }) 
       title: 'Sản phẩm',
       description: 'Tra cứu thông tin chi tiết sản phẩm',
     },
+    {
+      path: '/shop-performance',
+      icon: <PerformanceIcon />,
+      title: 'Hiệu suất Shop',
+      description: 'Theo dõi hiệu suất và chỉ số shop',
+    },
   ];
 
   return (
-    <div className="h-full overflow-auto p-6">
+    <div className="p-6">
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Welcome */}
         <div className="bg-white rounded-xl border border-slate-200 p-6">
@@ -301,7 +327,7 @@ const Index = () => {
     // Profile cũng hiển thị dù chưa kết nối shop
     if (activeMenu === 'profile') {
       return (
-        <div className="p-6 h-full overflow-auto">
+        <div className="p-6">
           <UserProfilePanel />
         </div>
       );
@@ -315,16 +341,23 @@ const Index = () => {
     switch (activeMenu) {
       case 'shop-info':
         return (
-          <div className="p-6 h-full overflow-auto">
+          <div className="p-6">
             <ShopInfoPanel shopId={token.shop_id!} />
           </div>
         );
+
       case 'flash-sale':
         return <FlashSaleManagerPanel />;
       case 'ads':
         return <AdsPanel />;
       case 'products':
         return <ProductInfoPanel />;
+      case 'shop-performance':
+        return (
+          <div className="p-6">
+            <ShopPerformancePanel shopId={token.shop_id!} />
+          </div>
+        );
       default:
         return <DashboardPanel onNavigate={handleNavigate} />;
     }
@@ -348,10 +381,10 @@ const Index = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
-      {/* Sidebar */}
+    <div className="h-screen bg-slate-50 flex overflow-hidden">
+      {/* Sidebar - Fixed */}
       <aside className={cn(
-        "bg-white border-r border-slate-200 flex flex-col transition-all duration-300 shadow-sm",
+        "bg-white border-r border-slate-200 flex flex-col transition-all duration-300 shadow-sm h-full",
         sidebarCollapsed ? "w-16" : "w-64"
       )}>
         {/* Logo */}
@@ -423,9 +456,9 @@ const Index = () => {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-h-screen overflow-hidden">
-        {/* Top Bar */}
-        <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-6">
+      <main className="flex-1 flex flex-col h-full overflow-hidden">
+        {/* Top Bar - Fixed */}
+        <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-6 flex-shrink-0">
           <h2 className="text-lg font-semibold text-slate-800">
             {currentMenuItem?.label || 'Dashboard'}
           </h2>
@@ -499,8 +532,8 @@ const Index = () => {
           </div>
         </header>
 
-        {/* Content Area */}
-        <div className="flex-1 overflow-hidden bg-slate-50">
+        {/* Content Area - Scrollable */}
+        <div className="flex-1 overflow-auto bg-slate-50">
           {renderContent()}
         </div>
       </main>

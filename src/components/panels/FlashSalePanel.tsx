@@ -2,11 +2,18 @@
  * Flash Sale Panel - Layout dạng bảng
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { useShopeeAuth } from '@/hooks/useShopeeAuth';
+import {
+  getFlashSalesFromCache,
+  saveFlashSalesToCache,
+  isFlashSaleCacheStale,
+  type FlashSale as FlashSaleType,
+  type CachedFlashSale,
+} from '@/lib/shopee';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
@@ -113,10 +120,17 @@ export default function FlashSalePanel() {
   const { toast } = useToast();
   const { token, isAuthenticated } = useShopeeAuth();
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false); // Background refresh
   const [flashSales, setFlashSales] = useState<FlashSale[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [filterType, setFilterType] = useState<string>('0');
+  const [lastCachedAt, setLastCachedAt] = useState<string | null>(null);
   const [selectedSale, setSelectedSale] = useState<FlashSale | null>(null);
+  
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(20);
+  const [allFlashSales, setAllFlashSales] = useState<FlashSale[]>([]); // Store all data
   
   const [loadingItems, setLoadingItems] = useState(false);
   const [itemsInfo, setItemsInfo] = useState<ItemInfo[]>([]);
@@ -139,14 +153,68 @@ export default function FlashSalePanel() {
 
   const formatPrice = (price: number) => new Intl.NumberFormat('vi-VN').format(price) + 'đ';
 
-
-  const fetchFlashSales = async () => {
-    if (!token?.shop_id) {
-      toast({ title: 'Lỗi', description: 'Chưa đăng nhập Shopee.', variant: 'destructive' });
-      return;
+  // Auto-load flash sales khi vào trang - ưu tiên cache
+  useEffect(() => {
+    if (isAuthenticated && token?.shop_id && flashSales.length === 0) {
+      loadFlashSalesWithCache();
     }
+  }, [isAuthenticated, token?.shop_id]);
+
+  // Load từ cache trước, sau đó background refresh
+  const loadFlashSalesWithCache = async () => {
+    if (!token?.shop_id) return;
 
     setLoading(true);
+    try {
+      // Step 1: Load từ cache trước
+      const cached = await getFlashSalesFromCache(token.shop_id);
+      
+      if (cached.length > 0) {
+        // Convert cache data to FlashSale format
+        const cachedFlashSales: FlashSale[] = cached.map(c => ({
+          flash_sale_id: c.flash_sale_id,
+          timeslot_id: c.timeslot_id,
+          status: c.status,
+          start_time: c.start_time,
+          end_time: c.end_time,
+          enabled_item_count: c.enabled_item_count,
+          item_count: c.item_count,
+          type: c.type,
+          remindme_count: c.remindme_count,
+          click_count: c.click_count,
+        }));
+
+        // Sort by type priority
+        const sorted = cachedFlashSales.sort((a, b) => (TYPE_PRIORITY[a.type] || 99) - (TYPE_PRIORITY[b.type] || 99));
+        
+        setAllFlashSales(sorted);
+        setTotalCount(cached.length);
+        setLastCachedAt(cached[0]?.cached_at || null);
+        setCurrentPage(1); // Reset to first page
+        setLoading(false);
+
+        // Step 2: Background refresh nếu cache cũ (> 5 phút)
+        if (cached[0]?.cached_at && isFlashSaleCacheStale(cached[0].cached_at, 5)) {
+          setRefreshing(true);
+          await fetchFlashSalesFromAPI(true);
+          setRefreshing(false);
+        }
+      } else {
+        // Không có cache, fetch từ API
+        await fetchFlashSalesFromAPI(false);
+      }
+    } catch (err) {
+      console.error('Error loading flash sales:', err);
+      setLoading(false);
+    }
+  };
+
+  // Fetch từ Shopee API và lưu cache
+  const fetchFlashSalesFromAPI = async (isBackground = false) => {
+    if (!token?.shop_id) return;
+
+    if (!isBackground) setLoading(true);
+    
     try {
       const { data, error } = await supabase.functions.invoke<ApiResponse>('shopee-flash-sale', {
         body: { action: 'get-flash-sale-list', shop_id: token.shop_id, type: Number(filterType), offset: 0, limit: 100 },
@@ -154,22 +222,44 @@ export default function FlashSalePanel() {
 
       if (error) throw error;
       if (data?.error) {
-        toast({ title: 'Lỗi', description: data.message || data.error, variant: 'destructive' });
+        if (!isBackground) {
+          toast({ title: 'Lỗi', description: data.message || data.error, variant: 'destructive' });
+        }
         return;
       }
 
       const list = data?.response?.flash_sale_list || [];
       // Sort: Đang chạy > Sắp tới > Kết thúc
       const sorted = list.sort((a, b) => (TYPE_PRIORITY[a.type] || 99) - (TYPE_PRIORITY[b.type] || 99));
-      setFlashSales(sorted);
+      
+      setAllFlashSales(sorted);
       setTotalCount(data?.response?.total_count || 0);
+      setLastCachedAt(new Date().toISOString());
       setSelectedSale(null);
-      toast({ title: 'Thành công', description: `Tìm thấy ${list.length} chương trình` });
+      setCurrentPage(1); // Reset to first page
+
+      // Lưu vào cache
+      await saveFlashSalesToCache(token.shop_id, list);
+
+      if (!isBackground) {
+        toast({ title: 'Thành công', description: `Tìm thấy ${list.length} chương trình` });
+      }
     } catch (err) {
-      toast({ title: 'Lỗi', description: (err as Error).message, variant: 'destructive' });
+      if (!isBackground) {
+        toast({ title: 'Lỗi', description: (err as Error).message, variant: 'destructive' });
+      }
     } finally {
-      setLoading(false);
+      if (!isBackground) setLoading(false);
     }
+  };
+
+  // Manual refresh - force fetch từ API
+  const fetchFlashSales = async () => {
+    if (!token?.shop_id) {
+      toast({ title: 'Lỗi', description: 'Chưa đăng nhập Shopee.', variant: 'destructive' });
+      return;
+    }
+    await fetchFlashSalesFromAPI(false);
   };
 
   const fetchItems = async (flashSaleId: number) => {
@@ -350,12 +440,19 @@ export default function FlashSalePanel() {
 
   const getModelsForItem = (itemId: number) => models.filter(m => m.item_id === itemId);
 
-  // Filter by type
-  const filteredSales = filterType === '0' ? flashSales : flashSales.filter(s => s.type === Number(filterType));
+  // Filter by type and paginate
+  const filteredAllSales = filterType === '0' ? allFlashSales : allFlashSales.filter(s => s.type === Number(filterType));
+  const totalPages = Math.ceil(filteredAllSales.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedSales = filteredAllSales.slice(startIndex, endIndex);
+
+  // Update displayedSales for display
+  const displayedSales = paginatedSales;
 
 
   return (
-    <div className="h-full flex flex-col bg-slate-50">
+    <div className="flex flex-col bg-slate-50 min-h-full">
       {/* Header */}
       <div className="bg-white border-b border-slate-200 p-4">
         <div className="flex items-center justify-between">
@@ -367,12 +464,24 @@ export default function FlashSalePanel() {
             </div>
             <div>
               <h2 className="text-lg font-semibold text-slate-800">Flash Sale</h2>
-              <p className="text-sm text-slate-400">{totalCount} chương trình</p>
+              <p className="text-sm text-slate-400">
+                {filteredAllSales.length}/{totalCount} chương trình
+                {totalPages > 1 && ` • Trang ${currentPage}/${totalPages}`}
+                {refreshing && <span className="ml-2 text-orange-500">• Đang cập nhật...</span>}
+                {lastCachedAt && !refreshing && (
+                  <span className="ml-2 text-slate-300">
+                    • Cache: {new Date(lastCachedAt).toLocaleTimeString('vi-VN')}
+                  </span>
+                )}
+              </p>
             </div>
           </div>
           
           <div className="flex items-center gap-3">
-            <Select value={filterType} onValueChange={setFilterType}>
+            <Select value={filterType} onValueChange={(value) => {
+              setFilterType(value);
+              setCurrentPage(1); // Reset to first page when filter changes
+            }}>
               <SelectTrigger className="w-40 bg-slate-50">
                 <SelectValue placeholder="Trạng thái" />
               </SelectTrigger>
@@ -383,6 +492,31 @@ export default function FlashSalePanel() {
                 <SelectItem value="3">✓ Kết thúc</SelectItem>
               </SelectContent>
             </Select>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center gap-2 text-sm">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                >
+                  ←
+                </Button>
+                <span className="px-2 py-1 bg-slate-100 rounded text-xs">
+                  {currentPage}/{totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage === totalPages}
+                >
+                  →
+                </Button>
+              </div>
+            )}
             
             <Button 
               className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600" 
@@ -396,14 +530,14 @@ export default function FlashSalePanel() {
       </div>
 
       {/* Main Content - Split View */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex flex-1">
         {/* Table */}
-        <div className={`${selectedSale ? 'w-1/2' : 'w-full'} overflow-auto border-r border-slate-200 bg-white`}>
+        <div className={`${selectedSale ? 'w-1/2' : 'w-full'} border-r border-slate-200 bg-white overflow-hidden flex flex-col`}>
           {!isAuthenticated ? (
             <div className="h-full flex items-center justify-center">
               <p className="text-slate-500">Vui lòng kết nối Shopee để tiếp tục</p>
             </div>
-          ) : filteredSales.length === 0 ? (
+          ) : displayedSales.length === 0 ? (
             <div className="h-full flex items-center justify-center">
               <div className="text-center">
                 <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -415,8 +549,9 @@ export default function FlashSalePanel() {
               </div>
             </div>
           ) : (
-            <Table>
-              <TableHeader className="sticky top-0 bg-slate-50 z-10">
+            <div className="flex-1 overflow-auto">
+              <Table className="min-w-[800px] w-full">
+                <TableHeader className="sticky top-0 bg-slate-50 z-10">
                 <TableRow>
                   <TableHead className="w-[250px]">Thời gian</TableHead>
                   <TableHead className="text-center">Trạng thái</TableHead>
@@ -426,7 +561,7 @@ export default function FlashSalePanel() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredSales.map((sale) => {
+                {displayedSales.map((sale) => {
                   const isSelected = selectedSale?.flash_sale_id === sale.flash_sale_id;
                   const typeInfo = TYPE_MAP[sale.type];
                   const statusInfo = STATUS_MAP[sale.status];
@@ -470,14 +605,15 @@ export default function FlashSalePanel() {
                   );
                 })}
               </TableBody>
-            </Table>
+              </Table>
+            </div>
           )}
         </div>
 
 
         {/* Detail Panel */}
         {selectedSale && (
-          <div className="w-1/2 overflow-auto bg-white p-6">
+          <div className="w-1/2 bg-white p-6">
             {loadingItems ? (
               <div className="h-full flex items-center justify-center">
                 <svg className="w-8 h-8 animate-spin text-orange-500" fill="none" viewBox="0 0 24 24">

@@ -408,6 +408,30 @@ serve(async (req) => {
         break;
       }
 
+      case 'get-notification': {
+        const { cursor, page_size } = body;
+        const token = await getTokenWithAutoRefresh(supabase, shop_id);
+        
+        const extraParams: Record<string, number> = {};
+        if (cursor !== undefined && cursor !== null) {
+          extraParams.cursor = cursor;
+        }
+        if (page_size !== undefined && page_size !== null) {
+          extraParams.page_size = page_size;
+        }
+
+        result = await callShopeeAPI(
+          supabase,
+          '/api/v2/shop/get_shop_notification',
+          'GET',
+          shop_id,
+          token,
+          undefined,
+          extraParams
+        );
+        break;
+      }
+
       default:
         return new Response(JSON.stringify({ error: 'Invalid action' }), {
           status: 400,

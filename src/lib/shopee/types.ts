@@ -265,3 +265,5 @@ export interface GetShopProfileResponse {
   request_id: string;
   response?: ShopProfile;
 }
+
+

@@ -87,9 +87,14 @@ export default function AdsPanel() {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false); // Background refresh
   const [campaigns, setCampaigns] = useState<CampaignWithFullInfo[]>([]);
+  const [allCampaigns, setAllCampaigns] = useState<CampaignWithFullInfo[]>([]); // Store all data
   const [filterType, setFilterType] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [lastCachedAt, setLastCachedAt] = useState<string | null>(null);
+  
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(20);
 
   // Edit Budget Dialog
   const [editBudgetOpen, setEditBudgetOpen] = useState(false);
@@ -149,8 +154,9 @@ export default function AdsPanel() {
           return priorityA - priorityB;
         });
 
-        setCampaigns(sorted);
+        setAllCampaigns(sorted);
         setLastCachedAt(cached[0]?.cached_at || null);
+        setCurrentPage(1); // Reset to first page
         setLoading(false);
 
         // Step 2: Background refresh nếu cache cũ (> 5 phút)
@@ -237,8 +243,9 @@ export default function AdsPanel() {
         return priorityA - priorityB;
       });
 
-      setCampaigns(sortedCampaigns);
+      setAllCampaigns(sortedCampaigns);
       setLastCachedAt(new Date().toISOString());
+      setCurrentPage(1); // Reset to first page
 
       // Lưu vào cache
       await saveCampaignsToCache(token.shop_id, sortedCampaigns);
@@ -265,7 +272,16 @@ export default function AdsPanel() {
     await fetchCampaignsFromAPI(false);
   };
 
-  const filteredCampaigns = filterStatus === 'all' ? campaigns : campaigns.filter((c) => c.status === filterStatus);
+  // Filter and paginate campaigns
+  const filteredAllCampaigns = filterStatus === 'all' ? allCampaigns : allCampaigns.filter((c) => c.status === filterStatus);
+  const totalPages = Math.ceil(filteredAllCampaigns.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedCampaigns = filteredAllCampaigns.slice(startIndex, endIndex);
+
+  // Update displayedCampaigns for display
+  const displayedCampaigns = paginatedCampaigns;
+  const filteredCampaigns = displayedCampaigns;
 
   const openEditBudget = (campaign: CampaignWithFullInfo) => {
     setEditingCampaign(campaign);
@@ -296,7 +312,7 @@ export default function AdsPanel() {
         return;
       }
 
-      setCampaigns((prev) =>
+      setAllCampaigns((prev) =>
         prev.map((c) =>
           c.campaign_id === editingCampaign.campaign_id
             ? { ...c, common_info: { ...c.common_info!, campaign_budget: budgetValue } }
@@ -332,7 +348,7 @@ export default function AdsPanel() {
       }
 
       const newStatus = newAction === 'pause' ? 'paused' : 'ongoing';
-      setCampaigns((prev) =>
+      setAllCampaigns((prev) =>
         prev.map((c) =>
           c.campaign_id === campaign.campaign_id
             ? { ...c, status: newStatus, common_info: { ...c.common_info!, campaign_status: newStatus as any } }
@@ -374,7 +390,7 @@ export default function AdsPanel() {
 
 
   return (
-    <div className="h-full flex flex-col bg-slate-50">
+    <div className="flex flex-col bg-slate-50 min-h-full">
       {/* Tab Header */}
       <div className="bg-white border-b border-slate-200 px-4 py-2">
         <div className="flex gap-1">
@@ -405,7 +421,8 @@ export default function AdsPanel() {
             <div>
               <h2 className="text-lg font-semibold text-slate-800">Quản lý Quảng cáo</h2>
               <p className="text-sm text-slate-400">
-                {campaigns.length} chiến dịch
+                {filteredAllCampaigns.length}/{allCampaigns.length} chiến dịch
+                {totalPages > 1 && ` • Trang ${currentPage}/${totalPages}`}
                 {refreshing && <span className="ml-2 text-blue-500">• Đang cập nhật...</span>}
                 {lastCachedAt && !refreshing && (
                   <span className="ml-2 text-slate-300">
@@ -428,7 +445,10 @@ export default function AdsPanel() {
               </SelectContent>
             </Select>
 
-            <Select value={filterStatus} onValueChange={setFilterStatus}>
+            <Select value={filterStatus} onValueChange={(value) => {
+              setFilterStatus(value);
+              setCurrentPage(1); // Reset to first page when filter changes
+            }}>
               <SelectTrigger className="w-32 bg-slate-50">
                 <SelectValue placeholder="Trạng thái" />
               </SelectTrigger>
@@ -440,6 +460,31 @@ export default function AdsPanel() {
                 <SelectItem value="ended">⚫ Kết thúc</SelectItem>
               </SelectContent>
             </Select>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center gap-2 text-sm">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                >
+                  ←
+                </Button>
+                <span className="px-2 py-1 bg-slate-100 rounded text-xs">
+                  {currentPage}/{totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage === totalPages}
+                >
+                  →
+                </Button>
+              </div>
+            )}
 
             <Button
               className="bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600"
@@ -453,7 +498,7 @@ export default function AdsPanel() {
       </div>
 
       {/* Table */}
-      <div className="flex-1 overflow-auto bg-white">
+      <div className="flex-1 bg-white">
         {!isAuthenticated ? (
           <div className="h-full flex items-center justify-center">
             <p className="text-slate-500">Vui lòng kết nối Shopee để tiếp tục</p>
@@ -470,10 +515,12 @@ export default function AdsPanel() {
             </div>
           </div>
         ) : (
-          <Table>
+          <div className="overflow-auto">
+            <div className="min-w-full">
+              <Table className="min-w-[1300px]">
             <TableHeader className="sticky top-0 bg-slate-50 z-10">
               <TableRow>
-                <TableHead className="w-[280px]">Chiến dịch</TableHead>
+                <TableHead className="w-[350px]">Chiến dịch</TableHead>
                 <TableHead className="text-center">Vị trí</TableHead>
                 <TableHead className="text-center">Đấu giá</TableHead>
                 <TableHead className="text-center">Ngân sách</TableHead>
@@ -500,7 +547,7 @@ export default function AdsPanel() {
                             </span>
                           )}
                         </div>
-                        <p className="font-medium text-slate-800 line-clamp-1">{campaign.name || `Campaign ${campaign.campaign_id}`}</p>
+                        <p className="font-medium text-slate-800">{campaign.name || `Campaign ${campaign.campaign_id}`}</p>
                         <p className="text-xs text-slate-400">ID: {campaign.campaign_id}</p>
                       </div>
                     </TableCell>
@@ -560,7 +607,9 @@ export default function AdsPanel() {
                 );
               })}
             </TableBody>
-          </Table>
+              </Table>
+            </div>
+          </div>
         )}
       </div>
 

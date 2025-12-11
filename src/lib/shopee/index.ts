@@ -79,6 +79,17 @@ export type {
   UpdateScheduleParams,
 } from './ads-scheduler-client';
 
+// Flash Sale Client
+export {
+  getFlashSalesFromCache,
+  saveFlashSalesToCache,
+  isCacheStale as isFlashSaleCacheStale,
+} from './flash-sale-client';
+export type {
+  FlashSale,
+  CachedFlashSale,
+} from './flash-sale-client';
+
 // Types
 export type {
   AccessToken,

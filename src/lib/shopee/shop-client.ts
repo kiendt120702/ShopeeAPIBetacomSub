@@ -73,3 +73,5 @@ export async function getShopProfile(shopId: number): Promise<GetShopProfileResp
 
   return data as GetShopProfileResponse;
 }
+
+
