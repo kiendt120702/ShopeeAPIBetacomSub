@@ -26,6 +26,7 @@ interface UseShopeeAuthReturn {
   isConfigured: boolean;
   useBackend: boolean;
   error: string | null;
+  user: { id: string; email?: string } | null;
   login: (callbackUrl?: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -39,6 +40,7 @@ export function useShopeeAuth(): UseShopeeAuthReturn {
   const [token, setToken] = useState<AccessToken | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [user, setUser] = useState<{ id: string; email?: string } | null>(null);
 
   const useBackend = isSupabaseConfigured();
   const isConfigured = isConfigValid() || useBackend;
@@ -91,9 +93,12 @@ export function useShopeeAuth(): UseShopeeAuthReturn {
     let mounted = true;
 
     async function initLoad() {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user: authUser } } = await supabase.auth.getUser();
       if (mounted) {
-        await loadTokenFromSource(user?.id);
+        if (authUser) {
+          setUser({ id: authUser.id, email: authUser.email });
+        }
+        await loadTokenFromSource(authUser?.id);
         setIsLoading(false);
       }
     }
@@ -105,6 +110,7 @@ export function useShopeeAuth(): UseShopeeAuthReturn {
       async (event, session) => {
         console.log('[AUTH] Auth state changed:', event);
         if (event === 'SIGNED_IN' && session?.user && mounted) {
+          setUser({ id: session.user.id, email: session.user.email });
           // Đợi 1 chút để đảm bảo session đã sẵn sàng
           setTimeout(async () => {
             if (mounted) {
@@ -113,6 +119,7 @@ export function useShopeeAuth(): UseShopeeAuthReturn {
           }, 100);
         } else if (event === 'SIGNED_OUT' && mounted) {
           setToken(null);
+          setUser(null);
         }
       }
     );
@@ -236,6 +243,7 @@ export function useShopeeAuth(): UseShopeeAuthReturn {
     isConfigured,
     useBackend,
     error,
+    user,
     login,
     logout,
     refresh,

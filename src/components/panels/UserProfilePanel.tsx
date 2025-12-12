@@ -14,15 +14,15 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { 
   User, 
   Mail, 
-  Calendar, 
   Edit2, 
   Save, 
   X,
   Store,
   Shield,
-  Clock
+  AlertCircle
 } from 'lucide-react';
 import { useAuth, getUserProfile, getUserShops } from '@/hooks/useAuth';
+import { useShopeeAuth } from '@/hooks/useShopeeAuth';
 import { supabase } from '@/lib/supabase';
 
 interface UserProfile {
@@ -40,15 +40,26 @@ interface UserShop {
   shop_name: string | null;
   is_active: boolean;
   created_at: string;
+  refresh_token: string | null;
+  token_expired_at: string | null;
+}
+
+interface ShopInfoCache {
+  shop_id: number;
+  shop_name: string | null;
+  shop_logo: string | null;
 }
 
 export function UserProfilePanel() {
   const { user } = useAuth();
+  const { login: connectShop } = useShopeeAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [shops, setShops] = useState<UserShop[]>([]);
+  const [shopInfoMap, setShopInfoMap] = useState<Record<number, ShopInfoCache>>({});
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
   const [editForm, setEditForm] = useState({ full_name: '' });
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -71,6 +82,23 @@ export function UserProfilePanel() {
       setProfile(profileData);
       setShops(shopsData);
       setEditForm({ full_name: profileData?.full_name || '' });
+
+      // Fetch shop info cache cho các shop đã kết nối
+      if (shopsData.length > 0) {
+        const shopIds = shopsData.map((s: UserShop) => s.shop_id);
+        const { data: shopInfoData } = await supabase
+          .from('shop_info_cache')
+          .select('shop_id, shop_name, shop_logo')
+          .in('shop_id', shopIds);
+        
+        if (shopInfoData) {
+          const infoMap: Record<number, ShopInfoCache> = {};
+          shopInfoData.forEach((info: ShopInfoCache) => {
+            infoMap[info.shop_id] = info;
+          });
+          setShopInfoMap(infoMap);
+        }
+      }
     } catch (err) {
       console.error('Error fetching user data:', err);
     } finally {
@@ -107,14 +135,16 @@ export function UserProfilePanel() {
     }
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('vi-VN', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+  const handleReconnectShop = async () => {
+    setReconnecting(true);
+    try {
+      await connectShop();
+    } catch (err) {
+      console.error('Error reconnecting shop:', err);
+      setMessage({ type: 'error', text: 'Không thể kết nối lại. Vui lòng thử lại.' });
+    } finally {
+      setReconnecting(false);
+    }
   };
 
   if (loading) {
@@ -227,30 +257,6 @@ export function UserProfilePanel() {
 
             <div className="flex items-center gap-3">
               <div className="p-2 bg-slate-100 rounded-lg">
-                <Calendar className="h-4 w-4 text-slate-600" />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Ngày tạo tài khoản</p>
-                <p className="text-sm font-medium">
-                  {profile?.created_at ? formatDate(profile.created_at) : 'N/A'}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-slate-100 rounded-lg">
-                <Clock className="h-4 w-4 text-slate-600" />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Cập nhật lần cuối</p>
-                <p className="text-sm font-medium">
-                  {profile?.updated_at ? formatDate(profile.updated_at) : 'N/A'}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-slate-100 rounded-lg">
                 <Store className="h-4 w-4 text-slate-600" />
               </div>
               <div>
@@ -259,44 +265,73 @@ export function UserProfilePanel() {
               </div>
             </div>
           </div>
-        </CardContent>
-      </Card>
 
-      {/* Connected Shops */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Store className="h-5 w-5" />
-            Shop đã kết nối
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {shops.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <Store className="h-12 w-12 mx-auto mb-3 opacity-50" />
-              <p>Chưa có shop nào được kết nối</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {shops.map((shop) => (
-                <div 
-                  key={shop.id} 
-                  className="flex items-center justify-between p-3 bg-slate-50 rounded-lg"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
-                      <Store className="h-5 w-5 text-orange-600" />
+          {/* Connected Shops - Simple list */}
+          {shops.length > 0 && (
+            <div className="pt-4 border-t">
+              <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                <Store className="h-4 w-4" />
+                Shop đã kết nối ({shops.length})
+              </h4>
+              <div className="space-y-2">
+                {shops.map((shop) => {
+                  const shopInfo = shopInfoMap[shop.shop_id];
+                  
+                  // Chỉ cảnh báo khi refresh token sắp hết (< 7 ngày) hoặc shop không active
+                  const needsAttention = !shop.is_active || 
+                    (shop.token_expired_at && 
+                     new Date(shop.token_expired_at).getTime() - Date.now() < 7 * 24 * 60 * 60 * 1000);
+                  
+                  return (
+                    <div 
+                      key={shop.id} 
+                      className="flex items-center justify-between p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        {shopInfo?.shop_logo ? (
+                          <Avatar className="h-10 w-10">
+                            <AvatarImage src={shopInfo.shop_logo} alt={shop.shop_name || ''} />
+                            <AvatarFallback className="bg-orange-100">
+                              <Store className="h-5 w-5 text-orange-600" />
+                            </AvatarFallback>
+                          </Avatar>
+                        ) : (
+                          <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
+                            <Store className="h-5 w-5 text-orange-600" />
+                          </div>
+                        )}
+                        <div>
+                          <p className="font-medium">
+                            {shopInfo?.shop_name || shop.shop_name || `Shop #${shop.shop_id}`}
+                          </p>
+                          <p className="text-xs text-muted-foreground">ID: {shop.shop_id}</p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        {needsAttention ? (
+                          <>
+                            <Badge variant="destructive" className="text-xs">
+                              <AlertCircle className="h-3 w-3 mr-1" />
+                              {!shop.is_active ? 'Không hoạt động' : 'Cần kết nối lại'}
+                            </Badge>
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={handleReconnectShop}
+                              disabled={reconnecting}
+                            >
+                              {reconnecting ? 'Đang kết nối...' : 'Kết nối lại'}
+                            </Button>
+                          </>
+                        ) : (
+                          <Badge variant="default">Hoạt động</Badge>
+                        )}
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-medium">{shop.shop_name || `Shop #${shop.shop_id}`}</p>
-                      <p className="text-xs text-muted-foreground">ID: {shop.shop_id}</p>
-                    </div>
-                  </div>
-                  <Badge variant={shop.is_active ? 'default' : 'secondary'}>
-                    {shop.is_active ? 'Đang hoạt động' : 'Không hoạt động'}
-                  </Badge>
-                </div>
-              ))}
+                  );
+                })}
+              </div>
             </div>
           )}
         </CardContent>
