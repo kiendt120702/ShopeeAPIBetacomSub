@@ -18,8 +18,6 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<Index />} />
-          <Route path="/shop-info" element={<Index />} />
-
           <Route path="/flash-sale" element={<Index />} />
           <Route path="/ads" element={<Index />} />
           <Route path="/products" element={<Index />} />

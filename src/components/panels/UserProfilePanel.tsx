@@ -24,6 +24,7 @@ import {
 import { useAuth, getUserProfile, getUserShops } from '@/hooks/useAuth';
 import { useShopeeAuth } from '@/hooks/useShopeeAuth';
 import { supabase } from '@/lib/supabase';
+import { getFullShopInfo } from '@/lib/shopee/shop-client';
 
 interface UserProfile {
   id: string;
@@ -37,17 +38,16 @@ interface UserProfile {
 interface UserShop {
   id: string;
   shop_id: number;
-  shop_name: string | null;
   is_active: boolean;
   created_at: string;
-  refresh_token: string | null;
-  token_expired_at: string | null;
+  role: string;
 }
 
-interface ShopInfoCache {
+interface ShopInfo {
   shop_id: number;
   shop_name: string | null;
   shop_logo: string | null;
+  region: string | null;
 }
 
 export function UserProfilePanel() {
@@ -55,7 +55,8 @@ export function UserProfilePanel() {
   const { login: connectShop } = useShopeeAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [shops, setShops] = useState<UserShop[]>([]);
-  const [shopInfoMap, setShopInfoMap] = useState<Record<number, ShopInfoCache>>({});
+  const [shopInfoMap, setShopInfoMap] = useState<Record<number, ShopInfo>>({});
+  const [tokensMap, setTokensMap] = useState<Record<number, { expired_at: number | null }>>({});
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -83,21 +84,65 @@ export function UserProfilePanel() {
       setShops(shopsData);
       setEditForm({ full_name: profileData?.full_name || '' });
 
-      // Fetch shop info cache cho các shop đã kết nối
+      // Fetch shop info từ bảng shops
       if (shopsData.length > 0) {
         const shopIds = shopsData.map((s: UserShop) => s.shop_id);
-        const { data: shopInfoData } = await supabase
-          .from('shop_info_cache')
-          .select('shop_id, shop_name, shop_logo')
+        
+        // Lấy thông tin shop từ bảng shops
+        const { data: shopsInfo } = await supabase
+          .from('shops')
+          .select('shop_id, shop_name, shop_logo, region')
           .in('shop_id', shopIds);
         
-        if (shopInfoData) {
-          const infoMap: Record<number, ShopInfoCache> = {};
-          shopInfoData.forEach((info: ShopInfoCache) => {
+        const infoMap: Record<number, ShopInfo> = {};
+        
+        // Thêm dữ liệu từ bảng shops vào map
+        if (shopsInfo && shopsInfo.length > 0) {
+          shopsInfo.forEach((info: ShopInfo) => {
             infoMap[info.shop_id] = info;
           });
-          setShopInfoMap(infoMap);
         }
+        
+        // Lấy thông tin token expired_at từ bảng shops
+        const { data: shopsTokenData } = await supabase
+          .from('shops')
+          .select('shop_id, expired_at')
+          .in('shop_id', shopIds);
+        
+        const tokensMap: Record<number, { expired_at: number | null }> = {};
+        if (shopsTokenData) {
+          shopsTokenData.forEach((shop: { shop_id: number; expired_at: number | null }) => {
+            tokensMap[shop.shop_id] = { expired_at: shop.expired_at };
+          });
+        }
+        setTokensMap(tokensMap);
+        
+        // Fetch thông tin cho các shop chưa có trong bảng shops
+        const existingShopIds = shopsInfo?.map(info => info.shop_id) || [];
+        const missingShopIds = shopIds.filter(id => !existingShopIds.includes(id));
+        
+        if (missingShopIds.length > 0) {
+          // Fetch từ API cho các shop chưa có thông tin (chạy song song)
+          await Promise.all(
+            missingShopIds.map(async (shopId) => {
+              try {
+                const result = await getFullShopInfo(shopId);
+                if (result.info.shop_name) {
+                  infoMap[shopId] = {
+                    shop_id: shopId,
+                    shop_name: result.info.shop_name,
+                    shop_logo: result.profile?.response?.shop_logo || null,
+                    region: result.info.region || null
+                  };
+                }
+              } catch (err) {
+                console.error(`Failed to fetch shop info for ${shopId}:`, err);
+              }
+            })
+          );
+        }
+        
+        setShopInfoMap(infoMap);
       }
     } catch (err) {
       console.error('Error fetching user data:', err);
@@ -276,11 +321,12 @@ export function UserProfilePanel() {
               <div className="space-y-2">
                 {shops.map((shop) => {
                   const shopInfo = shopInfoMap[shop.shop_id];
+                  const tokenInfo = tokensMap[shop.shop_id];
                   
-                  // Chỉ cảnh báo khi refresh token sắp hết (< 7 ngày) hoặc shop không active
-                  const needsAttention = !shop.is_active || 
-                    (shop.token_expired_at && 
-                     new Date(shop.token_expired_at).getTime() - Date.now() < 7 * 24 * 60 * 60 * 1000);
+                  // Chỉ cảnh báo khi token sắp hết (< 7 ngày) hoặc shop không active
+                  const tokenExpired = tokenInfo?.expired_at && 
+                    (tokenInfo.expired_at * 1000 - Date.now() < 7 * 24 * 60 * 60 * 1000);
+                  const needsAttention = !shop.is_active || tokenExpired;
                   
                   return (
                     <div 
@@ -290,7 +336,7 @@ export function UserProfilePanel() {
                       <div className="flex items-center gap-3">
                         {shopInfo?.shop_logo ? (
                           <Avatar className="h-10 w-10">
-                            <AvatarImage src={shopInfo.shop_logo} alt={shop.shop_name || ''} />
+                            <AvatarImage src={shopInfo.shop_logo} alt={shopInfo.shop_name || ''} />
                             <AvatarFallback className="bg-orange-100">
                               <Store className="h-5 w-5 text-orange-600" />
                             </AvatarFallback>
@@ -302,9 +348,12 @@ export function UserProfilePanel() {
                         )}
                         <div>
                           <p className="font-medium">
-                            {shopInfo?.shop_name || shop.shop_name || `Shop #${shop.shop_id}`}
+                            {shopInfo?.shop_name || `Shop #${shop.shop_id}`}
                           </p>
-                          <p className="text-xs text-muted-foreground">ID: {shop.shop_id}</p>
+                          <p className="text-xs text-muted-foreground">
+                            ID: {shop.shop_id}
+                            {shopInfo?.region && ` • ${shopInfo.region}`}
+                          </p>
                         </div>
                       </div>
                       
@@ -325,7 +374,7 @@ export function UserProfilePanel() {
                             </Button>
                           </>
                         ) : (
-                          <Badge variant="default">Hoạt động</Badge>
+                          <Badge variant="default" className="bg-green-500">Hoạt động</Badge>
                         )}
                       </div>
                     </div>

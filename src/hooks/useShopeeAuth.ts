@@ -60,25 +60,42 @@ export function useShopeeAuth(): UseShopeeAuthReturn {
       // 2. Nếu không có trong localStorage, kiểm tra database
       if (userId) {
         console.log('[AUTH] No local token, checking database for user:', userId);
-        const shops = await getUserShops(userId);
-        console.log('[AUTH] Shops from database:', shops);
         
-        if (shops && shops.length > 0) {
-          const shop = shops[0];
-          console.log('[AUTH] Found shop in database:', shop.shop_id);
+        // Lấy danh sách shop của user
+        const userShops = await getUserShops(userId);
+        console.log('[AUTH] User shops from database:', userShops);
+        
+        if (userShops && userShops.length > 0) {
+          const userShop = userShops[0];
+          console.log('[AUTH] Found shop in database:', userShop.shop_id);
           
-          const dbToken: AccessToken = {
-            access_token: shop.access_token,
-            refresh_token: shop.refresh_token,
-            shop_id: shop.shop_id,
-            expired_at: new Date(shop.token_expired_at).getTime(),
-            expire_in: Math.floor((new Date(shop.token_expired_at).getTime() - Date.now()) / 1000),
-          };
+          // Lấy token từ bảng shops (token được lưu trong bảng shops)
+          const { data: shopData, error: shopError } = await supabase
+            .from('shops')
+            .select('shop_id, access_token, refresh_token, expired_at, expire_in, merchant_id')
+            .eq('shop_id', userShop.shop_id)
+            .single();
           
-          await storeToken(dbToken);
-          setToken(dbToken);
-          console.log('[AUTH] Token restored from database');
-          return true;
+          if (shopError) {
+            console.error('[AUTH] Error fetching shop token:', shopError);
+            return false;
+          }
+          
+          if (shopData && shopData.access_token) {
+            const dbToken: AccessToken = {
+              access_token: shopData.access_token,
+              refresh_token: shopData.refresh_token,
+              shop_id: shopData.shop_id,
+              expired_at: shopData.expired_at,
+              expire_in: shopData.expire_in || 14400,
+              merchant_id: shopData.merchant_id,
+            };
+            
+            await storeToken(dbToken);
+            setToken(dbToken);
+            console.log('[AUTH] Token restored from shops table');
+            return true;
+          }
         }
       }
       return false;
@@ -179,9 +196,10 @@ export function useShopeeAuth(): UseShopeeAuthReturn {
               newToken.shop_id,
               newToken.access_token,
               newToken.refresh_token,
-              newToken.expired_at || Date.now() + 4 * 60 * 60 * 1000
+              newToken.expired_at || Date.now() + 4 * 60 * 60 * 1000,
+              newToken.merchant_id
             );
-            console.log('[AUTH] Shop saved to database');
+            console.log('[AUTH] Shop and token saved to database');
           }
         } catch (dbErr) {
           console.warn('[AUTH] Failed to save shop to database:', dbErr);

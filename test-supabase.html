@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Test Supabase Connection</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <h1>Test Supabase Connection</h1>
+  <div id="status">Testing...</div>
+  <div id="result"></div>
+
+  <script>
+    const supabaseUrl = 'https://omgvvnqwroypavmpwbup.supabase.co';
+    const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9tZ3Z2bnF3cm95cGF2bXB3YnVwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUyNzI2MjQsImV4cCI6MjA4MDg0ODYyNH0.7ykFYPTivbBni2HtnaSct2tAKDs9_kNNWTVulii1sIE';
+
+    const { createClient } = supabase;
+    const client = createClient(supabaseUrl, supabaseKey);
+
+    async function testConnection() {
+      const statusEl = document.getElementById('status');
+      const resultEl = document.getElementById('result');
+
+      try {
+        statusEl.textContent = 'Testing getSession...';
+        const { data: { session }, error } = await client.auth.getSession();
+        
+        if (error) {
+          statusEl.textContent = 'Error: ' + error.message;
+          resultEl.textContent = JSON.stringify(error, null, 2);
+        } else {
+          statusEl.textContent = 'Success!';
+          resultEl.textContent = 'Session: ' + JSON.stringify(session, null, 2);
+        }
+      } catch (err) {
+        statusEl.textContent = 'Exception: ' + err.message;
+        resultEl.textContent = JSON.stringify(err, null, 2);
+      }
+    }
+
+    testConnection();
+  </script>
+</body>
+</html>

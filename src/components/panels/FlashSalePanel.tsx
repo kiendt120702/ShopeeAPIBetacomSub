@@ -1,5 +1,6 @@
 /**
- * Flash Sale Panel - Layout dạng bảng
+ * Flash Sale Panel - Sync-First Architecture
+ * Đọc từ Supabase DB, sync từ Shopee API chạy ngầm
  */
 
 import { useState, useEffect } from 'react';
@@ -7,13 +8,6 @@ import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { useShopeeAuth } from '@/hooks/useShopeeAuth';
-import {
-  getFlashSalesFromCache,
-  saveFlashSalesToCache,
-  isFlashSaleCacheStale,
-  type FlashSale as FlashSaleType,
-  type CachedFlashSale,
-} from '@/lib/shopee';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
@@ -36,9 +30,11 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from '@/components/ui/dialog';
 
 interface FlashSale {
+  id: string;
   flash_sale_id: number;
   timeslot_id: number;
   status: number;
@@ -49,6 +45,12 @@ interface FlashSale {
   type: number;
   remindme_count: number;
   click_count: number;
+  synced_at: string;
+}
+
+interface SyncStatus {
+  flash_sales_synced_at: string | null;
+  is_syncing: boolean;
 }
 
 interface ItemInfo {
@@ -58,10 +60,7 @@ interface ItemInfo {
   status: number;
   input_promotion_price?: number;
   campaign_stock?: number;
-  original_price?: number;
-  stock?: number;
 }
-
 
 interface ModelInfo {
   item_id: number;
@@ -70,35 +69,13 @@ interface ModelInfo {
   status: number;
   original_price: number;
   input_promotion_price: number;
-  promotion_price_with_tax: number;
   campaign_stock: number;
-  stock: number;
-  purchase_limit: number;
-  reject_reason: string;
 }
 
 interface TimeSlot {
   timeslot_id: number;
   start_time: number;
   end_time: number;
-}
-
-interface FlashSaleItemsResponse {
-  error?: string;
-  message?: string;
-  response?: { total_count: number; item_info: ItemInfo[]; models: ModelInfo[] };
-}
-
-interface ApiResponse {
-  error?: string;
-  message?: string;
-  response?: { total_count: number; flash_sale_list: FlashSale[] };
-}
-
-interface TimeSlotsResponse {
-  error?: string;
-  message?: string;
-  response?: TimeSlot[];
 }
 
 const STATUS_MAP: Record<number, { label: string; color: string }> = {
@@ -118,25 +95,31 @@ const TYPE_PRIORITY: Record<number, number> = { 2: 1, 1: 2, 3: 3 };
 
 export default function FlashSalePanel() {
   const { toast } = useToast();
-  const { token, isAuthenticated } = useShopeeAuth();
-  const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false); // Background refresh
-  const [flashSales, setFlashSales] = useState<FlashSale[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [filterType, setFilterType] = useState<string>('0');
-  const [lastCachedAt, setLastCachedAt] = useState<string | null>(null);
-  const [selectedSale, setSelectedSale] = useState<FlashSale | null>(null);
+  const { token, isAuthenticated, user } = useShopeeAuth();
   
-  // Pagination
+  // Data state - từ Supabase DB
+  const [flashSales, setFlashSales] = useState<FlashSale[]>([]);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+
+  // UI state
+  const [filterType, setFilterType] = useState<string>('0');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(20);
-  const [allFlashSales, setAllFlashSales] = useState<FlashSale[]>([]); // Store all data
   
+  // Detail modal state
+  const [selectedSale, setSelectedSale] = useState<FlashSale | null>(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const [loadingItems, setLoadingItems] = useState(false);
   const [itemsInfo, setItemsInfo] = useState<ItemInfo[]>([]);
   const [models, setModels] = useState<ModelInfo[]>([]);
   
+  // Delete state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  
+  // Copy state
   const [showCopyDialog, setShowCopyDialog] = useState(false);
   const [loadingTimeSlots, setLoadingTimeSlots] = useState(false);
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
@@ -153,127 +136,166 @@ export default function FlashSalePanel() {
 
   const formatPrice = (price: number) => new Intl.NumberFormat('vi-VN').format(price) + 'đ';
 
-  // Auto-load flash sales khi vào trang - ưu tiên cache
-  useEffect(() => {
-    if (isAuthenticated && token?.shop_id && flashSales.length === 0) {
-      loadFlashSalesWithCache();
-    }
-  }, [isAuthenticated, token?.shop_id]);
+  const formatSyncTime = (isoString: string | null) => {
+    if (!isoString) return 'Chưa sync';
+    return new Date(isoString).toLocaleString('vi-VN', {
+      day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+    });
+  };
 
-  // Load từ cache trước, sau đó background refresh
-  const loadFlashSalesWithCache = async () => {
-    if (!token?.shop_id) return;
-
+  // ============================================
+  // LOAD DATA FROM SUPABASE DB (Sync-First)
+  // ============================================
+  
+  // Load flash sales từ DB
+  const loadFlashSalesFromDB = async () => {
+    if (!token?.shop_id || !user?.id) return;
+    
     setLoading(true);
     try {
-      // Step 1: Load từ cache trước
-      const cached = await getFlashSalesFromCache(token.shop_id);
+      const { data, error } = await supabase
+        .from('flash_sale_data')
+        .select('*')
+        .eq('shop_id', token.shop_id)
+        .eq('user_id', user.id)
+        .order('type', { ascending: true });
+
+      if (error) throw error;
       
-      if (cached.length > 0) {
-        // Convert cache data to FlashSale format
-        const cachedFlashSales: FlashSale[] = cached.map(c => ({
-          flash_sale_id: c.flash_sale_id,
-          timeslot_id: c.timeslot_id,
-          status: c.status,
-          start_time: c.start_time,
-          end_time: c.end_time,
-          enabled_item_count: c.enabled_item_count,
-          item_count: c.item_count,
-          type: c.type,
-          remindme_count: c.remindme_count,
-          click_count: c.click_count,
-        }));
-
-        // Sort by type priority
-        const sorted = cachedFlashSales.sort((a, b) => (TYPE_PRIORITY[a.type] || 99) - (TYPE_PRIORITY[b.type] || 99));
-        
-        setAllFlashSales(sorted);
-        setTotalCount(cached.length);
-        setLastCachedAt(cached[0]?.cached_at || null);
-        setCurrentPage(1); // Reset to first page
-        setLoading(false);
-
-        // Step 2: Background refresh nếu cache cũ (> 5 phút)
-        if (cached[0]?.cached_at && isFlashSaleCacheStale(cached[0].cached_at, 5)) {
-          setRefreshing(true);
-          await fetchFlashSalesFromAPI(true);
-          setRefreshing(false);
-        }
-      } else {
-        // Không có cache, fetch từ API
-        await fetchFlashSalesFromAPI(false);
-      }
+      // Sort by type priority: Đang chạy > Sắp tới > Kết thúc
+      const sorted = (data || []).sort((a, b) => 
+        (TYPE_PRIORITY[a.type] || 99) - (TYPE_PRIORITY[b.type] || 99)
+      );
+      
+      setFlashSales(sorted);
     } catch (err) {
-      console.error('Error loading flash sales:', err);
+      console.error('Error loading flash sales from DB:', err);
+    } finally {
       setLoading(false);
     }
   };
 
-  // Fetch từ Shopee API và lưu cache
-  const fetchFlashSalesFromAPI = async (isBackground = false) => {
-    if (!token?.shop_id) return;
-
-    if (!isBackground) setLoading(true);
+  // Load sync status
+  const loadSyncStatus = async () => {
+    if (!token?.shop_id || !user?.id) return;
     
     try {
-      const { data, error } = await supabase.functions.invoke<ApiResponse>('shopee-flash-sale', {
-        body: { action: 'get-flash-sale-list', shop_id: token.shop_id, type: Number(filterType), offset: 0, limit: 100 },
+      const { data, error } = await supabase
+        .from('sync_status')
+        .select('flash_sales_synced_at, is_syncing')
+        .eq('shop_id', token.shop_id)
+        .eq('user_id', user.id)
+        .single();
+
+      if (!error && data) {
+        setSyncStatus(data);
+      }
+    } catch (err) {
+      console.error('Error loading sync status:', err);
+    }
+  };
+
+  // ============================================
+  // TRIGGER SYNC (Gọi Edge Function sync từ Shopee)
+  // ============================================
+  
+  const triggerSync = async () => {
+    if (!token?.shop_id || !user?.id) {
+      toast({ title: 'Lỗi', description: 'Chưa đăng nhập', variant: 'destructive' });
+      return;
+    }
+
+    setSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('shopee-sync-worker', {
+        body: {
+          action: 'sync-flash-sale-data',
+          shop_id: token.shop_id,
+          user_id: user.id,
+        },
       });
 
       if (error) throw error;
       if (data?.error) {
-        if (!isBackground) {
-          toast({ title: 'Lỗi', description: data.message || data.error, variant: 'destructive' });
-        }
+        toast({ title: 'Lỗi sync', description: data.error, variant: 'destructive' });
         return;
       }
 
-      const list = data?.response?.flash_sale_list || [];
-      // Sort: Đang chạy > Sắp tới > Kết thúc
-      const sorted = list.sort((a, b) => (TYPE_PRIORITY[a.type] || 99) - (TYPE_PRIORITY[b.type] || 99));
+      toast({ 
+        title: 'Sync thành công', 
+        description: `Đã cập nhật ${data?.flash_sale_count || 0} chương trình Flash Sale` 
+      });
       
-      setAllFlashSales(sorted);
-      setTotalCount(data?.response?.total_count || 0);
-      setLastCachedAt(new Date().toISOString());
-      setSelectedSale(null);
-      setCurrentPage(1); // Reset to first page
-
-      // Lưu vào cache
-      await saveFlashSalesToCache(token.shop_id, list);
-
-      if (!isBackground) {
-        toast({ title: 'Thành công', description: `Tìm thấy ${list.length} chương trình` });
-      }
+      // Reload data từ DB
+      await loadFlashSalesFromDB();
+      await loadSyncStatus();
+      
     } catch (err) {
-      if (!isBackground) {
-        toast({ title: 'Lỗi', description: (err as Error).message, variant: 'destructive' });
-      }
+      toast({ title: 'Lỗi', description: (err as Error).message, variant: 'destructive' });
     } finally {
-      if (!isBackground) setLoading(false);
+      setSyncing(false);
     }
   };
 
-  // Manual refresh - force fetch từ API
-  const fetchFlashSales = async () => {
-    if (!token?.shop_id) {
-      toast({ title: 'Lỗi', description: 'Chưa đăng nhập Shopee.', variant: 'destructive' });
-      return;
-    }
-    await fetchFlashSalesFromAPI(false);
-  };
+  // ============================================
+  // REALTIME SUBSCRIPTION
+  // ============================================
+  
+  useEffect(() => {
+    if (!token?.shop_id || !user?.id) return;
+
+    // Load initial data
+    loadFlashSalesFromDB();
+    loadSyncStatus();
+
+    // Subscribe to realtime changes
+    const channel = supabase
+      .channel('flash_sale_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'flash_sale_data',
+          filter: `shop_id=eq.${token.shop_id}`,
+        },
+        () => {
+          console.log('[Realtime] Flash sale data changed, reloading...');
+          loadFlashSalesFromDB();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'sync_status',
+          filter: `shop_id=eq.${token.shop_id}`,
+        },
+        () => {
+          console.log('[Realtime] Sync status changed, reloading...');
+          loadSyncStatus();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [token?.shop_id, user?.id]);
+
+  // ============================================
+  // ACTIONS (Vẫn gọi API trực tiếp cho Write operations)
+  // ============================================
 
   const fetchItems = async (flashSaleId: number) => {
     if (!token?.shop_id) return;
     setLoadingItems(true);
     try {
-      const { data, error } = await supabase.functions.invoke<FlashSaleItemsResponse>('shopee-flash-sale', {
+      const { data, error } = await supabase.functions.invoke('shopee-flash-sale', {
         body: { action: 'get-items', shop_id: token.shop_id, flash_sale_id: flashSaleId, offset: 0, limit: 100 },
       });
       if (error) throw error;
-      if (data?.error) {
-        toast({ title: 'Lỗi', description: data.message || data.error, variant: 'destructive' });
-        return;
-      }
       setItemsInfo(data?.response?.item_info || []);
       setModels(data?.response?.models || []);
     } catch (err) {
@@ -288,7 +310,7 @@ export default function FlashSalePanel() {
     setLoadingTimeSlots(true);
     try {
       const now = Math.floor(Date.now() / 1000) + 60;
-      const { data, error } = await supabase.functions.invoke<TimeSlotsResponse>('shopee-flash-sale', {
+      const { data, error } = await supabase.functions.invoke('shopee-flash-sale', {
         body: { action: 'get-time-slots', shop_id: token.shop_id, start_time: now, end_time: now + 30 * 24 * 60 * 60 },
       });
       if (error) throw error;
@@ -304,12 +326,12 @@ export default function FlashSalePanel() {
     setSelectedSale(sale);
     setItemsInfo([]);
     setModels([]);
+    setShowDetailModal(true);
     await fetchItems(sale.flash_sale_id);
   };
 
   const handleDeleteFlashSale = async () => {
     if (!selectedSale || !token?.shop_id) return;
-    if (!confirm(`Bạn có chắc muốn xóa Flash Sale này?\nID: ${selectedSale.flash_sale_id}`)) return;
 
     setDeleting(true);
     try {
@@ -322,8 +344,11 @@ export default function FlashSalePanel() {
         return;
       }
       toast({ title: 'Thành công', description: 'Đã xóa Flash Sale' });
+      
+      // Remove from local state & trigger sync
       setFlashSales(prev => prev.filter(s => s.flash_sale_id !== selectedSale.flash_sale_id));
       setSelectedSale(null);
+      setShowDeleteConfirm(false);
     } catch (err) {
       toast({ title: 'Lỗi', description: (err as Error).message, variant: 'destructive' });
     } finally {
@@ -338,7 +363,6 @@ export default function FlashSalePanel() {
     setShowCopyDialog(true);
     fetchTimeSlots();
   };
-
 
   const handleCopyFlashSale = async () => {
     if (selectedTimeSlots.length === 0) {
@@ -436,23 +460,28 @@ export default function FlashSalePanel() {
     toast({ title: 'Hoàn thành', description: `Copy thành công ${successCount}/${selectedTimeSlots.length} time slots` });
     setShowCopyDialog(false);
     setCopying(false);
+    
+    // Trigger sync để cập nhật DB
+    triggerSync();
   };
 
   const getModelsForItem = (itemId: number) => models.filter(m => m.item_id === itemId);
 
-  // Filter by type and paginate
-  const filteredAllSales = filterType === '0' ? allFlashSales : allFlashSales.filter(s => s.type === Number(filterType));
-  const totalPages = Math.ceil(filteredAllSales.length / itemsPerPage);
+  // ============================================
+  // COMPUTED VALUES
+  // ============================================
+  
+  const filteredSales = filterType === '0' ? flashSales : flashSales.filter(s => s.type === Number(filterType));
+  const totalPages = Math.ceil(filteredSales.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const paginatedSales = filteredAllSales.slice(startIndex, endIndex);
+  const paginatedSales = filteredSales.slice(startIndex, startIndex + itemsPerPage);
 
-  // Update displayedSales for display
-  const displayedSales = paginatedSales;
-
+  // ============================================
+  // RENDER
+  // ============================================
 
   return (
-    <div className="flex flex-col bg-slate-50 min-h-full">
+    <div className="flex flex-col bg-slate-50 h-full overflow-hidden">
       {/* Header */}
       <div className="bg-white border-b border-slate-200 p-4">
         <div className="flex items-center justify-between">
@@ -465,12 +494,11 @@ export default function FlashSalePanel() {
             <div>
               <h2 className="text-lg font-semibold text-slate-800">Flash Sale</h2>
               <p className="text-sm text-slate-400">
-                {filteredAllSales.length}/{totalCount} chương trình
+                {filteredSales.length} chương trình
                 {totalPages > 1 && ` • Trang ${currentPage}/${totalPages}`}
-                {refreshing && <span className="ml-2 text-orange-500">• Đang cập nhật...</span>}
-                {lastCachedAt && !refreshing && (
+                {syncStatus && (
                   <span className="ml-2 text-slate-300">
-                    • Cache: {new Date(lastCachedAt).toLocaleTimeString('vi-VN')}
+                    • Sync: {formatSyncTime(syncStatus.flash_sales_synced_at)}
                   </span>
                 )}
               </p>
@@ -478,10 +506,7 @@ export default function FlashSalePanel() {
           </div>
           
           <div className="flex items-center gap-3">
-            <Select value={filterType} onValueChange={(value) => {
-              setFilterType(value);
-              setCurrentPage(1); // Reset to first page when filter changes
-            }}>
+            <Select value={filterType} onValueChange={(value) => { setFilterType(value); setCurrentPage(1); }}>
               <SelectTrigger className="w-40 bg-slate-50">
                 <SelectValue placeholder="Trạng thái" />
               </SelectTrigger>
@@ -493,242 +518,267 @@ export default function FlashSalePanel() {
               </SelectContent>
             </Select>
 
-            {/* Pagination Controls */}
             {totalPages > 1 && (
               <div className="flex items-center gap-2 text-sm">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                  disabled={currentPage === 1}
-                >
-                  ←
-                </Button>
-                <span className="px-2 py-1 bg-slate-100 rounded text-xs">
-                  {currentPage}/{totalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                  disabled={currentPage === totalPages}
-                >
-                  →
-                </Button>
+                <Button variant="outline" size="sm" onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))} disabled={currentPage === 1}>←</Button>
+                <span className="px-2 py-1 bg-slate-100 rounded text-xs">{currentPage}/{totalPages}</span>
+                <Button variant="outline" size="sm" onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))} disabled={currentPage === totalPages}>→</Button>
               </div>
             )}
             
             <Button 
               className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600" 
-              onClick={fetchFlashSales} 
-              disabled={loading || !isAuthenticated}
+              onClick={triggerSync} 
+              disabled={syncing || !isAuthenticated}
             >
-              {loading ? 'Đang tải...' : 'Tải danh sách'}
+              {syncing ? '⟳ Đang sync...' : '🔄 Sync dữ liệu'}
             </Button>
           </div>
         </div>
       </div>
 
-      {/* Main Content - Split View */}
-      <div className="flex flex-1">
-        {/* Table */}
-        <div className={`${selectedSale ? 'w-1/2' : 'w-full'} border-r border-slate-200 bg-white overflow-hidden flex flex-col`}>
-          {!isAuthenticated ? (
-            <div className="h-full flex items-center justify-center">
-              <p className="text-slate-500">Vui lòng kết nối Shopee để tiếp tục</p>
+      {/* Table */}
+      <div className="flex-1 bg-white overflow-auto">
+        {!isAuthenticated ? (
+          <div className="h-full flex items-center justify-center">
+            <p className="text-slate-500">Vui lòng kết nối Shopee để tiếp tục</p>
+          </div>
+        ) : loading ? (
+          <div className="h-full flex items-center justify-center">
+            <div className="text-center">
+              <svg className="w-8 h-8 animate-spin text-orange-500 mx-auto mb-2" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              <p className="text-slate-400">Đang tải từ database...</p>
             </div>
-          ) : displayedSales.length === 0 ? (
-            <div className="h-full flex items-center justify-center">
-              <div className="text-center">
-                <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-8 h-8 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                </div>
-                <p className="text-slate-400">{loading ? 'Đang tải...' : 'Nhấn "Tải danh sách" để bắt đầu'}</p>
+          </div>
+        ) : paginatedSales.length === 0 ? (
+          <div className="h-full flex items-center justify-center">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
               </div>
+              <p className="text-slate-400 mb-4">Chưa có dữ liệu Flash Sale</p>
+              <Button onClick={triggerSync} disabled={syncing}>
+                {syncing ? 'Đang sync...' : 'Sync dữ liệu từ Shopee'}
+              </Button>
             </div>
-          ) : (
-            <div className="flex-1 overflow-auto">
-              <Table className="min-w-[800px] w-full">
-                <TableHeader className="sticky top-0 bg-slate-50 z-10">
+          </div>
+        ) : (
+          <div className="overflow-auto max-h-[calc(100vh-200px)]">
+            <Table className="min-w-[700px] w-full">
+              <TableHeader className="sticky top-0 bg-slate-50 z-10">
                 <TableRow>
-                  <TableHead className="w-[250px]">Thời gian</TableHead>
-                  <TableHead className="text-center">Trạng thái</TableHead>
-                  <TableHead className="text-center">Sản phẩm</TableHead>
-                  <TableHead className="text-center">Clicks</TableHead>
-                  <TableHead className="text-center">Nhắc nhở</TableHead>
+                  <TableHead className="w-[160px]">Thời gian</TableHead>
+                  <TableHead className="text-center w-[80px]">Trạng thái</TableHead>
+                  <TableHead className="text-center w-[70px]">SP</TableHead>
+                  <TableHead className="text-center w-[50px]">Clicks</TableHead>
+                  <TableHead className="text-center w-[50px]">Nhắc</TableHead>
+                  <TableHead className="text-center w-[180px]">Hành động</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {displayedSales.map((sale) => {
-                  const isSelected = selectedSale?.flash_sale_id === sale.flash_sale_id;
+                {paginatedSales.map((sale) => {
                   const typeInfo = TYPE_MAP[sale.type];
                   const statusInfo = STATUS_MAP[sale.status];
                   
                   return (
-                    <TableRow 
-                      key={sale.flash_sale_id}
-                      onClick={() => handleSelectSale(sale)}
-                      className={`cursor-pointer transition-colors ${isSelected ? 'bg-orange-50' : 'hover:bg-slate-50'}`}
-                    >
+                    <TableRow key={sale.id} className="hover:bg-slate-50">
                       <TableCell>
                         <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${typeInfo?.color}`}>
-                              {typeInfo?.label}
-                            </span>
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${statusInfo?.color}`}>
-                              {statusInfo?.label}
-                            </span>
+                          <div className="flex items-center gap-1">
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${typeInfo?.color}`}>{typeInfo?.label}</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${statusInfo?.color}`}>{statusInfo?.label}</span>
                           </div>
-                          <p className="font-medium text-slate-800">{formatDate(sale.start_time)}</p>
+                          <p className="font-medium text-slate-800 text-sm">{formatDate(sale.start_time)}</p>
                           <p className="text-xs text-slate-400">→ {formatDate(sale.end_time)}</p>
                         </div>
                       </TableCell>
                       <TableCell className="text-center">
-                        <span className={`text-xs px-2 py-1 rounded-full ${typeInfo?.color}`}>
-                          {typeInfo?.label}
-                        </span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${typeInfo?.color}`}>{typeInfo?.label}</span>
                       </TableCell>
                       <TableCell className="text-center">
-                        <span className="font-medium text-slate-700">{sale.enabled_item_count}</span>
-                        <span className="text-slate-400">/{sale.item_count}</span>
+                        <span className="font-medium text-slate-700 text-sm">{sale.enabled_item_count}</span>
+                        <span className="text-slate-400 text-sm">/{sale.item_count}</span>
                       </TableCell>
-                      <TableCell className="text-center font-medium text-slate-700">
-                        {sale.click_count}
-                      </TableCell>
-                      <TableCell className="text-center font-medium text-slate-700">
-                        {sale.remindme_count}
+                      <TableCell className="text-center font-medium text-slate-700 text-sm">{sale.click_count}</TableCell>
+                      <TableCell className="text-center font-medium text-slate-700 text-sm">{sale.remindme_count}</TableCell>
+                      <TableCell className="text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <Button variant="ghost" size="sm" onClick={() => handleSelectSale(sale)} className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 h-7 px-2 text-xs">
+                            <svg className="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                            Chi tiết
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={async () => { setSelectedSale(sale); await fetchItems(sale.flash_sale_id); setSelectedTimeSlots([]); setShowCopyDialog(true); fetchTimeSlots(); }} className="text-green-600 hover:text-green-700 hover:bg-green-50 h-7 px-2">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => { setSelectedSale(sale); setShowDeleteConfirm(true); }} className="text-red-600 hover:text-red-700 hover:bg-red-50 h-7 px-2">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
                 })}
               </TableBody>
-              </Table>
-            </div>
-          )}
-        </div>
-
-
-        {/* Detail Panel */}
-        {selectedSale && (
-          <div className="w-1/2 bg-white p-6">
-            {loadingItems ? (
-              <div className="h-full flex items-center justify-center">
-                <svg className="w-8 h-8 animate-spin text-orange-500" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {/* Header */}
-                <div className="bg-gradient-to-r from-orange-500 to-red-500 rounded-xl p-5 text-white">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <p className="text-orange-100 text-xs">Flash Sale ID</p>
-                      <h3 className="text-xl font-bold">{selectedSale.flash_sale_id}</h3>
-                      <p className="text-orange-100 text-sm mt-1">{formatDate(selectedSale.start_time)} → {formatDate(selectedSale.end_time)}</p>
-                    </div>
-                    <button onClick={() => setSelectedSale(null)} className="p-1 hover:bg-white/20 rounded">
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-                  <div className="flex gap-2 mt-3">
-                    <span className="bg-white/20 px-2 py-0.5 rounded text-xs">{TYPE_MAP[selectedSale.type]?.label}</span>
-                    <span className="bg-white/20 px-2 py-0.5 rounded text-xs">{STATUS_MAP[selectedSale.status]?.label}</span>
-                  </div>
-                </div>
-
-                {/* Stats */}
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="bg-slate-50 rounded-lg p-3 text-center">
-                    <p className="text-2xl font-bold text-slate-700">{selectedSale.enabled_item_count}/{selectedSale.item_count}</p>
-                    <p className="text-xs text-slate-400">Sản phẩm</p>
-                  </div>
-                  <div className="bg-slate-50 rounded-lg p-3 text-center">
-                    <p className="text-2xl font-bold text-slate-700">{selectedSale.click_count}</p>
-                    <p className="text-xs text-slate-400">Clicks</p>
-                  </div>
-                  <div className="bg-slate-50 rounded-lg p-3 text-center">
-                    <p className="text-2xl font-bold text-slate-700">{selectedSale.remindme_count}</p>
-                    <p className="text-xs text-slate-400">Nhắc nhở</p>
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div className="flex gap-2">
-                  <Button onClick={handleOpenCopyDialog} className="flex-1 bg-blue-500 hover:bg-blue-600">
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                    Copy sang Time Slot khác
-                  </Button>
-                  <Button onClick={handleDeleteFlashSale} variant="destructive" disabled={deleting}>
-                    {deleting ? '...' : 'Xóa'}
-                  </Button>
-                </div>
-
-                {/* Items List */}
-                {itemsInfo.length > 0 && (
-                  <div>
-                    <h4 className="font-semibold text-slate-700 mb-3">Sản phẩm ({itemsInfo.length})</h4>
-                    <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                      {itemsInfo.map((item) => {
-                        const itemModels = getModelsForItem(item.item_id);
-                        return (
-                          <div key={item.item_id} className="bg-slate-50 rounded-lg p-3">
-                            <div className="flex gap-3">
-                              <div className="w-12 h-12 rounded bg-slate-200 flex items-center justify-center flex-shrink-0">
-                                <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                                </svg>
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="font-medium text-slate-700 text-sm line-clamp-1">{item.item_name}</p>
-                                <p className="text-xs text-slate-400">ID: {item.item_id}</p>
-                                {itemModels.length > 0 ? (
-                                  <div className="mt-2 space-y-1">
-                                    {itemModels.slice(0, 3).map(m => (
-                                      <div key={m.model_id} className="flex justify-between text-xs">
-                                        <span className="text-slate-500">{m.model_name}</span>
-                                        <span className="text-orange-600 font-medium">{formatPrice(m.input_promotion_price)}</span>
-                                      </div>
-                                    ))}
-                                    {itemModels.length > 3 && (
-                                      <p className="text-xs text-slate-400">+{itemModels.length - 3} phân loại khác</p>
-                                    )}
-                                  </div>
-                                ) : item.input_promotion_price ? (
-                                  <p className="text-sm text-orange-600 font-medium mt-1">{formatPrice(item.input_promotion_price)}</p>
-                                ) : null}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+            </Table>
           </div>
         )}
       </div>
 
+      {/* Detail Modal */}
+      <Dialog open={showDetailModal} onOpenChange={setShowDetailModal}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-red-500 rounded-lg flex items-center justify-center">
+                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+              </div>
+              Chi tiết Flash Sale
+            </DialogTitle>
+            <DialogDescription>Xem thông tin chi tiết và danh sách sản phẩm</DialogDescription>
+          </DialogHeader>
+          
+          {selectedSale && (
+            <div className="flex-1 overflow-y-auto space-y-4">
+              <div className="bg-gradient-to-r from-orange-500 to-red-500 rounded-xl p-4 text-white">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-orange-100 text-xs">Flash Sale ID</p>
+                    <h3 className="text-lg font-bold">{selectedSale.flash_sale_id}</h3>
+                    <p className="text-orange-100 text-sm mt-1">{formatDate(selectedSale.start_time)} → {formatDate(selectedSale.end_time)}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="bg-white/20 px-2 py-0.5 rounded text-xs">{TYPE_MAP[selectedSale.type]?.label}</span>
+                    <span className="bg-white/20 px-2 py-0.5 rounded text-xs">{STATUS_MAP[selectedSale.status]?.label}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-slate-50 rounded-lg p-3 text-center">
+                  <p className="text-xl font-bold text-slate-700">{selectedSale.enabled_item_count}/{selectedSale.item_count}</p>
+                  <p className="text-xs text-slate-400">Sản phẩm</p>
+                </div>
+                <div className="bg-slate-50 rounded-lg p-3 text-center">
+                  <p className="text-xl font-bold text-slate-700">{selectedSale.click_count}</p>
+                  <p className="text-xs text-slate-400">Clicks</p>
+                </div>
+                <div className="bg-slate-50 rounded-lg p-3 text-center">
+                  <p className="text-xl font-bold text-slate-700">{selectedSale.remindme_count}</p>
+                  <p className="text-xs text-slate-400">Nhắc nhở</p>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-semibold text-slate-700 mb-3">Sản phẩm ({itemsInfo.length})</h4>
+                {loadingItems ? (
+                  <div className="flex items-center justify-center py-8">
+                    <svg className="w-6 h-6 animate-spin text-orange-500" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  </div>
+                ) : itemsInfo.length === 0 ? (
+                  <p className="text-center text-slate-400 py-4">Không có sản phẩm</p>
+                ) : (
+                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                    {itemsInfo.map((item) => {
+                      const itemModels = getModelsForItem(item.item_id);
+                      return (
+                        <div key={item.item_id} className="bg-slate-50 rounded-lg p-3">
+                          <div className="flex gap-3">
+                            <div className="w-10 h-10 rounded bg-slate-200 flex items-center justify-center flex-shrink-0">
+                              <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                              </svg>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-slate-700 text-sm line-clamp-1">{item.item_name}</p>
+                              <p className="text-xs text-slate-400">ID: {item.item_id}</p>
+                              {itemModels.length > 0 ? (
+                                <div className="mt-2 space-y-1">
+                                  {itemModels.slice(0, 3).map(m => (
+                                    <div key={m.model_id} className="flex justify-between text-xs">
+                                      <span className="text-slate-500">{m.model_name}</span>
+                                      <span className="text-orange-600 font-medium">{formatPrice(m.input_promotion_price)}</span>
+                                    </div>
+                                  ))}
+                                  {itemModels.length > 3 && <p className="text-xs text-slate-400">+{itemModels.length - 3} phân loại khác</p>}
+                                </div>
+                              ) : item.input_promotion_price ? (
+                                <p className="text-sm text-orange-600 font-medium mt-1">{formatPrice(item.input_promotion_price)}</p>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex gap-2">
+            <Button variant="outline" onClick={() => { setShowDetailModal(false); handleOpenCopyDialog(); }} className="flex-1">
+              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+              Copy sang Time Slot khác
+            </Button>
+            <Button variant="destructive" onClick={() => { setShowDetailModal(false); setShowDeleteConfirm(true); }}>Xóa</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Xác nhận xóa Flash Sale</DialogTitle>
+            <DialogDescription>Hành động này không thể hoàn tác</DialogDescription>
+          </DialogHeader>
+          {selectedSale && (
+            <div className="py-4">
+              <div className="bg-red-50 rounded-lg p-4 mb-4">
+                <p className="text-sm text-red-600 mb-2">Flash Sale sẽ bị xóa vĩnh viễn:</p>
+                <p className="font-medium text-slate-800">ID: {selectedSale.flash_sale_id}</p>
+                <p className="text-sm text-slate-600">{formatDate(selectedSale.start_time)} → {formatDate(selectedSale.end_time)}</p>
+                <p className="text-sm text-slate-500">{selectedSale.item_count} sản phẩm</p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>Hủy</Button>
+            <Button variant="destructive" onClick={handleDeleteFlashSale} disabled={deleting}>
+              {deleting ? 'Đang xóa...' : 'Xóa Flash Sale'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Copy Dialog */}
       <Dialog open={showCopyDialog} onOpenChange={setShowCopyDialog}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>Copy Flash Sale sang Time Slot khác</DialogTitle>
+            <DialogDescription>Chọn time slot để copy sản phẩm từ Flash Sale này</DialogDescription>
           </DialogHeader>
           
           <div className="flex-1 overflow-y-auto space-y-4">
-            {/* Mode Selection */}
             <div className="flex gap-4 p-3 bg-slate-50 rounded-lg">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="radio" checked={copyMode === 'now'} onChange={() => setCopyMode('now')} className="text-orange-500" />
@@ -741,19 +791,12 @@ export default function FlashSalePanel() {
               {copyMode === 'schedule' && (
                 <div className="flex items-center gap-2 ml-4">
                   <span className="text-sm text-slate-500">Chạy trước</span>
-                  <input 
-                    type="number" 
-                    value={minutesBefore} 
-                    onChange={e => setMinutesBefore(Number(e.target.value))}
-                    className="w-16 px-2 py-1 border rounded text-sm"
-                    min={1}
-                  />
+                  <input type="number" value={minutesBefore} onChange={e => setMinutesBefore(Number(e.target.value))} className="w-16 px-2 py-1 border rounded text-sm" min={1} />
                   <span className="text-sm text-slate-500">phút</span>
                 </div>
               )}
             </div>
 
-            {/* Time Slots */}
             <div>
               <div className="flex items-center justify-between mb-2">
                 <h4 className="font-medium text-slate-700">Chọn Time Slots ({selectedTimeSlots.length}/{timeSlots.length})</h4>
@@ -770,24 +813,10 @@ export default function FlashSalePanel() {
               ) : (
                 <div className="grid grid-cols-2 gap-2 max-h-[300px] overflow-y-auto">
                   {timeSlots.map(slot => (
-                    <label 
-                      key={slot.timeslot_id}
-                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                        selectedTimeSlots.includes(slot.timeslot_id) 
-                          ? 'border-orange-500 bg-orange-50' 
-                          : 'border-slate-200 hover:bg-slate-50'
-                      }`}
-                    >
-                      <Checkbox 
-                        checked={selectedTimeSlots.includes(slot.timeslot_id)}
-                        onCheckedChange={() => {
-                          setSelectedTimeSlots(prev => 
-                            prev.includes(slot.timeslot_id) 
-                              ? prev.filter(id => id !== slot.timeslot_id)
-                              : [...prev, slot.timeslot_id]
-                          );
-                        }}
-                      />
+                    <label key={slot.timeslot_id} className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${selectedTimeSlots.includes(slot.timeslot_id) ? 'border-orange-500 bg-orange-50' : 'border-slate-200 hover:bg-slate-50'}`}>
+                      <Checkbox checked={selectedTimeSlots.includes(slot.timeslot_id)} onCheckedChange={() => {
+                        setSelectedTimeSlots(prev => prev.includes(slot.timeslot_id) ? prev.filter(id => id !== slot.timeslot_id) : [...prev, slot.timeslot_id]);
+                      }} />
                       <div>
                         <p className="font-medium text-sm">{formatDate(slot.start_time)}</p>
                         <p className="text-xs text-slate-400">→ {formatDate(slot.end_time)}</p>
@@ -801,11 +830,7 @@ export default function FlashSalePanel() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCopyDialog(false)}>Hủy</Button>
-            <Button 
-              onClick={handleCopyFlashSale} 
-              disabled={copying || selectedTimeSlots.length === 0}
-              className="bg-gradient-to-r from-orange-500 to-red-500"
-            >
+            <Button onClick={handleCopyFlashSale} disabled={copying || selectedTimeSlots.length === 0} className="bg-gradient-to-r from-orange-500 to-red-500">
               {copying ? 'Đang xử lý...' : copyMode === 'schedule' ? 'Hẹn giờ' : 'Copy ngay'}
             </Button>
           </DialogFooter>

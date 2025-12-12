@@ -295,7 +295,7 @@ export interface CachedCampaign {
  */
 export async function getCampaignsFromCache(shopId: number): Promise<CachedCampaign[]> {
   const { data, error } = await supabase
-    .from('campaigns_cache')
+    .from('ads_campaign_data')
     .select('*')
     .eq('shop_id', shopId)
     .order('status', { ascending: true });
@@ -340,7 +340,7 @@ export async function saveCampaignsToCache(
   }));
 
   const { error } = await supabase
-    .from('campaigns_cache')
+    .from('ads_campaign_data')
     .upsert(cacheData, { onConflict: 'shop_id,campaign_id' });
 
   if (error) {

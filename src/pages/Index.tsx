@@ -9,14 +9,13 @@ import { useShopeeAuth } from '@/hooks/useShopeeAuth';
 import FlashSaleManagerPanel from '@/components/panels/FlashSaleManagerPanel';
 import ProductInfoPanel from '@/components/panels/ProductInfoPanel';
 import AdsPanel from '@/components/panels/AdsPanel';
-import ShopInfoPanel from '@/components/panels/ShopInfoPanel';
 import ShopPerformancePanel from '@/components/panels/ShopPerformancePanel';
 import UserProfilePanel from '@/components/panels/UserProfilePanel';
 
 import AuthPage from '@/pages/Auth';
 import { cn } from '@/lib/utils';
 
-type MenuId = 'dashboard' | 'shop-info' | 'flash-sale' | 'products' | 'ads' | 'shop-performance' | 'profile';
+type MenuId = 'dashboard' | 'flash-sale' | 'products' | 'ads' | 'shop-performance' | 'profile';
 
 interface MenuItem {
   id: MenuId;
@@ -34,14 +33,6 @@ const menuItems: MenuItem[] = [
     icon: <DashboardIcon />,
     description: 'Giới thiệu các chức năng'
   },
-  { 
-    id: 'shop-info',
-    path: '/shop-info',
-    label: 'Thông tin Shop', 
-    icon: <StoreIcon />,
-    description: 'Xem thông tin chi tiết shop'
-  },
-
   { 
     id: 'flash-sale',
     path: '/flash-sale',
@@ -189,12 +180,6 @@ function ConnectShopBanner({ onConnect, error, isLoading }: { onConnect: () => v
 function DashboardPanel({ onNavigate }: { onNavigate: (path: string) => void }) {
   const features = [
     {
-      path: '/shop-info',
-      icon: <StoreIcon />,
-      title: 'Thông tin Shop',
-      description: 'Xem trạng thái, thời gian ủy quyền và các tính năng shop',
-    },
-    {
       path: '/flash-sale',
       icon: <FlameIcon />,
       title: 'Flash Sale',
@@ -217,6 +202,12 @@ function DashboardPanel({ onNavigate }: { onNavigate: (path: string) => void }) 
       icon: <PerformanceIcon />,
       title: 'Hiệu suất Shop',
       description: 'Theo dõi hiệu suất và chỉ số shop',
+    },
+    {
+      path: '/profile',
+      icon: <UserIcon />,
+      title: 'Tài khoản',
+      description: 'Xem thông tin tài khoản và shop đã kết nối',
     },
   ];
 
@@ -339,13 +330,6 @@ const Index = () => {
     }
     
     switch (activeMenu) {
-      case 'shop-info':
-        return (
-          <div className="p-6">
-            <ShopInfoPanel shopId={token.shop_id!} />
-          </div>
-        );
-
       case 'flash-sale':
         return <FlashSaleManagerPanel />;
       case 'ads':

@@ -144,25 +144,44 @@ export async function saveUserShop(
   shopId: number,
   accessToken: string,
   refreshToken: string,
-  expiredAt: number
+  expiredAt: number,
+  merchantId?: number
 ) {
-  const { error } = await supabase
+  // 1. Upsert vào bảng shops (token được lưu trong bảng shops)
+  const { error: shopError } = await supabase
+    .from('shops')
+    .upsert({
+      shop_id: shopId,
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      expired_at: expiredAt,
+      merchant_id: merchantId,
+      token_updated_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }, {
+      onConflict: 'shop_id',
+    });
+
+  if (shopError) {
+    console.error('[saveUserShop] Shop error:', shopError);
+    throw shopError;
+  }
+
+  // 2. Upsert vào bảng user_shops (liên kết user-shop)
+  const { error: userShopError } = await supabase
     .from('user_shops')
     .upsert({
       user_id: userId,
       shop_id: shopId,
-      access_token: accessToken,
-      refresh_token: refreshToken,
-      token_expired_at: new Date(expiredAt).toISOString(),
       is_active: true,
       updated_at: new Date().toISOString(),
     }, {
       onConflict: 'user_id,shop_id',
     });
 
-  if (error) {
-    console.error('[saveUserShop] Error:', error);
-    throw error;
+  if (userShopError) {
+    console.error('[saveUserShop] UserShop error:', userShopError);
+    throw userShopError;
   }
 }
 
@@ -170,10 +189,10 @@ export async function saveUserShop(
 export async function getUserShops(userId: string) {
   const { data, error } = await supabase
     .from('user_shops')
-    .select('*')
+    .select('id, shop_id, is_active, created_at, role')
     .eq('user_id', userId)
     .eq('is_active', true)
-    .order('updated_at', { ascending: false });
+    .order('created_at', { ascending: false });
 
   if (error) {
     console.error('[getUserShops] Error:', error);
