@@ -462,15 +462,13 @@ const Index = () => {
                       {shops.find(s => s.shop_id === selectedShopId)?.shop_name || token?.shop_id}
                     </span>
                   </span>
-                  {shops.length > 1 && (
-                    <svg className={cn("w-3 h-3 text-emerald-600 transition-transform", showShopMenu && "rotate-180")} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  )}
+                  <svg className={cn("w-3 h-3 text-emerald-600 transition-transform", showShopMenu && "rotate-180")} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
                 </button>
                 
                 {/* Shop dropdown */}
-                {showShopMenu && shops.length > 1 && (
+                {showShopMenu && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setShowShopMenu(false)} />
                     <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-20">
@@ -506,6 +504,20 @@ const Index = () => {
                           )}
                         </button>
                       ))}
+                      {/* Nút thêm shop */}
+                      <div className="border-t border-slate-100 mt-1 pt-1">
+                        <button
+                          onClick={() => { handleConnectShopee(); setShowShopMenu(false); }}
+                          className="w-full px-3 py-2.5 text-left hover:bg-orange-50 flex items-center gap-3 text-orange-600"
+                        >
+                          <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                            </svg>
+                          </div>
+                          <span className="text-sm font-medium">Thêm shop mới</span>
+                        </button>
+                      </div>
                     </div>
                   </>
                 )}

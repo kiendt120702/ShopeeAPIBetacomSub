@@ -62,6 +62,9 @@ export function useShopeeAuth(): UseShopeeAuthReturn {
   // Function load token từ localStorage hoặc database
   const loadTokenFromSource = useCallback(async (userId?: string, targetShopId?: number) => {
     try {
+      let tokenLoaded = false;
+      let localShopId: number | null = null;
+
       // 1. Thử load từ localStorage trước (nếu không có targetShopId)
       if (!targetShopId) {
         const storedToken = await getStoredToken();
@@ -69,11 +72,12 @@ export function useShopeeAuth(): UseShopeeAuthReturn {
           console.log('[AUTH] Token loaded from localStorage, shop_id:', storedToken.shop_id);
           setToken(storedToken);
           setSelectedShopId(storedToken.shop_id);
-          return true;
+          localShopId = storedToken.shop_id;
+          tokenLoaded = true;
         }
       }
 
-      // 2. Nếu không có trong localStorage, kiểm tra database
+      // 2. Luôn load danh sách shops từ database
       if (userId) {
         console.log('[AUTH] Checking database for user:', userId);
         
@@ -100,10 +104,15 @@ export function useShopeeAuth(): UseShopeeAuthReturn {
             }));
             setShops(shopInfoList);
             
+            // Nếu đã load token từ localStorage, không cần load lại
+            if (tokenLoaded) {
+              return true;
+            }
+            
             // Chọn shop: ưu tiên targetShopId, sau đó localStorage, cuối cùng là shop đầu tiên
             const shopToLoad = targetShopId 
               ? shopsData.find(s => s.shop_id === targetShopId) 
-              : shopsData[0];
+              : (localShopId ? shopsData.find(s => s.shop_id === localShopId) : shopsData[0]);
             
             if (shopToLoad && shopToLoad.access_token) {
               const dbToken: AccessToken = {
@@ -124,7 +133,7 @@ export function useShopeeAuth(): UseShopeeAuthReturn {
           }
         }
       }
-      return false;
+      return tokenLoaded;
     } catch (err) {
       console.error('[AUTH] Error loading token:', err);
       return false;
