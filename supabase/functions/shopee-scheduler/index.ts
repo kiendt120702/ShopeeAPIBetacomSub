@@ -21,10 +21,23 @@ const corsHeaders = {
 const SHOPEE_PARTNER_ID = Number(Deno.env.get('SHOPEE_PARTNER_ID'));
 const SHOPEE_PARTNER_KEY = Deno.env.get('SHOPEE_PARTNER_KEY') || '';
 const SHOPEE_BASE_URL = Deno.env.get('SHOPEE_BASE_URL') || 'https://partner.shopeemobile.com';
+const PROXY_URL = Deno.env.get('SHOPEE_PROXY_URL') || ''; // VPS Proxy URL
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 
 const TOKEN_BUFFER_MS = 5 * 60 * 1000;
+
+/**
+ * Helper function để gọi API qua proxy hoặc trực tiếp
+ */
+async function fetchWithProxy(targetUrl: string, options: RequestInit): Promise<Response> {
+  if (PROXY_URL) {
+    const proxyUrl = `${PROXY_URL}?url=${encodeURIComponent(targetUrl)}`;
+    console.log('[PROXY] Calling via proxy:', PROXY_URL);
+    return await fetch(proxyUrl, options);
+  }
+  return await fetch(targetUrl, options);
+}
 
 function createSignature(partnerId: number, path: string, timestamp: number, accessToken = '', shopId = 0): string {
   let baseString = `${partnerId}${path}${timestamp}`;
@@ -40,7 +53,7 @@ async function refreshAccessToken(refreshToken: string, shopId: number) {
   const path = '/api/v2/auth/access_token/get';
   const sign = createSignature(SHOPEE_PARTNER_ID, path, timestamp);
   const url = `${SHOPEE_BASE_URL}${path}?partner_id=${SHOPEE_PARTNER_ID}&timestamp=${timestamp}&sign=${sign}`;
-  const response = await fetch(url, {
+  const response = await fetchWithProxy(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh_token: refreshToken, partner_id: SHOPEE_PARTNER_ID, shop_id: shopId }),
@@ -102,7 +115,7 @@ async function callShopeeAPI(
     const url = `${SHOPEE_BASE_URL}${path}?${params.toString()}`;
     const options: RequestInit = { method, headers: { 'Content-Type': 'application/json' } };
     if (method === 'POST' && body) options.body = JSON.stringify(body);
-    const response = await fetch(url, options);
+    const response = await fetchWithProxy(url, options);
     return await response.json();
   };
 

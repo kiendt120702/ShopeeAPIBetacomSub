@@ -16,10 +16,23 @@ const corsHeaders = {
 const SHOPEE_PARTNER_ID = Number(Deno.env.get('SHOPEE_PARTNER_ID'));
 const SHOPEE_PARTNER_KEY = Deno.env.get('SHOPEE_PARTNER_KEY') || '';
 const SHOPEE_BASE_URL = Deno.env.get('SHOPEE_BASE_URL') || 'https://partner.shopeemobile.com';
+const PROXY_URL = Deno.env.get('SHOPEE_PROXY_URL') || ''; // VPS Proxy URL
 
 // Supabase config
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+
+/**
+ * Helper function để gọi API qua proxy hoặc trực tiếp
+ */
+async function fetchWithProxy(targetUrl: string, options: RequestInit): Promise<Response> {
+  if (PROXY_URL) {
+    const proxyUrl = `${PROXY_URL}?url=${encodeURIComponent(targetUrl)}`;
+    console.log('[PROXY] Calling via proxy:', PROXY_URL);
+    return await fetch(proxyUrl, options);
+  }
+  return await fetch(targetUrl, options);
+}
 
 /**
  * Tạo signature cho Shopee API
@@ -85,7 +98,7 @@ async function getAccessToken(code: string, shopId?: number, mainAccountId?: num
 
   const url = `${SHOPEE_BASE_URL}${path}?partner_id=${SHOPEE_PARTNER_ID}&timestamp=${timestamp}&sign=${sign}`;
 
-  const response = await fetch(url, {
+  const response = await fetchWithProxy(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -116,7 +129,7 @@ async function refreshAccessToken(refreshToken: string, shopId?: number, merchan
 
   const url = `${SHOPEE_BASE_URL}${path}?partner_id=${SHOPEE_PARTNER_ID}&timestamp=${timestamp}&sign=${sign}`;
 
-  const response = await fetch(url, {
+  const response = await fetchWithProxy(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -214,8 +227,9 @@ serve(async (req) => {
         const token = await getAccessToken(code, shopId, mainAccountId);
 
         if (token.error) {
-          return new Response(JSON.stringify({ error: token.error, message: token.message }), {
-            status: 400,
+          // Return 200 with error in body so frontend can read the message
+          return new Response(JSON.stringify({ error: token.error, message: token.message, success: false }), {
+            status: 200,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
@@ -240,8 +254,9 @@ serve(async (req) => {
         const token = await refreshAccessToken(refresh_token, shop_id, merchant_id);
 
         if (token.error) {
-          return new Response(JSON.stringify({ error: token.error, message: token.message }), {
-            status: 400,
+          // Return 200 with error in body so frontend can read the message
+          return new Response(JSON.stringify({ error: token.error, message: token.message, success: false }), {
+            status: 200,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
@@ -258,8 +273,9 @@ serve(async (req) => {
         const shopId = Number(body.shop_id);
 
         if (!shopId) {
-          return new Response(JSON.stringify({ error: 'shop_id is required' }), {
-            status: 400,
+          // Return 200 with error in body so frontend can read the message
+          return new Response(JSON.stringify({ error: 'shop_id is required', success: false }), {
+            status: 200,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
@@ -272,15 +288,17 @@ serve(async (req) => {
       }
 
       default:
-        return new Response(JSON.stringify({ error: 'Invalid action' }), {
-          status: 400,
+        // Return 200 with error in body so frontend can read the message
+        return new Response(JSON.stringify({ error: 'Invalid action', success: false }), {
+          status: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
     }
   } catch (error) {
     console.error('Error:', error);
-    return new Response(JSON.stringify({ error: (error as Error).message }), {
-      status: 500,
+    // Return 200 with error in body so frontend can read the message
+    return new Response(JSON.stringify({ error: (error as Error).message, success: false }), {
+      status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }

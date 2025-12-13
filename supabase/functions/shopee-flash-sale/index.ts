@@ -16,6 +16,8 @@ const corsHeaders = {
 const SHOPEE_PARTNER_ID = Number(Deno.env.get('SHOPEE_PARTNER_ID'));
 const SHOPEE_PARTNER_KEY = Deno.env.get('SHOPEE_PARTNER_KEY') || '';
 const SHOPEE_BASE_URL = Deno.env.get('SHOPEE_BASE_URL') || 'https://partner.shopeemobile.com';
+const PROXY_URL = Deno.env.get('SHOPEE_PROXY_URL') || ''; // VPS Proxy URL
+const PROXY_URL = Deno.env.get('PROXY_URL') || ''; // VPS Proxy URL
 
 // Supabase config
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
@@ -44,6 +46,20 @@ function createSignature(
 }
 
 /**
+ * Helper function để gọi API qua proxy hoặc trực tiếp
+ */
+async function fetchWithProxy(targetUrl: string, options: RequestInit): Promise<Response> {
+  if (PROXY_URL) {
+    // Gọi qua VPS proxy
+    const proxyUrl = `${PROXY_URL}?url=${encodeURIComponent(targetUrl)}`;
+    console.log('[PROXY] Calling via proxy:', PROXY_URL);
+    return await fetch(proxyUrl, options);
+  }
+  // Gọi trực tiếp
+  return await fetch(targetUrl, options);
+}
+
+/**
  * Refresh access token từ Shopee
  */
 async function refreshAccessToken(refreshToken: string, shopId: number) {
@@ -53,7 +69,7 @@ async function refreshAccessToken(refreshToken: string, shopId: number) {
 
   const url = `${SHOPEE_BASE_URL}${path}?partner_id=${SHOPEE_PARTNER_ID}&timestamp=${timestamp}&sign=${sign}`;
 
-  const response = await fetch(url, {
+  const response = await fetchWithProxy(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -227,7 +243,7 @@ async function callShopeeAPIWithRetry(
       options.body = JSON.stringify(body);
     }
 
-    const response = await fetch(url, options);
+    const response = await fetchWithProxy(url, options);
     return await response.json();
   };
 
@@ -459,8 +475,14 @@ serve(async (req) => {
     });
   } catch (error) {
     console.error('Error:', error);
-    return new Response(JSON.stringify({ error: (error as Error).message }), {
-      status: 500,
+    // Trả về 200 với error trong body để frontend có thể đọc được message
+    // Thay vì 500 sẽ gây ra "non-2xx status code" không rõ ràng
+    return new Response(JSON.stringify({ 
+      error: (error as Error).message,
+      success: false,
+      details: 'Check Supabase Edge Function logs for more details'
+    }), {
+      status: 200, // Return 200 so frontend can read the error message
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }

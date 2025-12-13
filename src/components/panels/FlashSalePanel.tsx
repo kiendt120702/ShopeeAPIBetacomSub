@@ -268,13 +268,22 @@ export default function FlashSalePanel() {
       // Unsubscribe sau khi xong
       supabase.removeChannel(progressChannel);
 
-      if (error) throw error;
-      if (data?.error) {
+      if (error) {
+        console.error('Edge function invoke error:', error);
+        throw new Error(error.message || 'Edge Function error');
+      }
+      if (data?.error || data?.success === false) {
+        console.error('Sync error response:', data);
         setSyncProgress({
           status: 'error',
-          message: data.error,
+          message: data.error || 'Unknown error',
           total: 0,
           synced: 0,
+        });
+        toast({
+          title: 'Lỗi đồng bộ',
+          description: data.error || 'Không thể đồng bộ dữ liệu',
+          variant: 'destructive',
         });
         return;
       }

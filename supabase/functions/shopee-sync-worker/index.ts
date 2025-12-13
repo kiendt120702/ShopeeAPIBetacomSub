@@ -15,6 +15,7 @@ const corsHeaders = {
 const SHOPEE_PARTNER_ID = Number(Deno.env.get('SHOPEE_PARTNER_ID'));
 const SHOPEE_PARTNER_KEY = Deno.env.get('SHOPEE_PARTNER_KEY') || '';
 const SHOPEE_BASE_URL = Deno.env.get('SHOPEE_BASE_URL') || 'https://partner.shopeemobile.com';
+const PROXY_URL = Deno.env.get('SHOPEE_PROXY_URL') || ''; // VPS Proxy URL
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 
@@ -128,6 +129,20 @@ async function getTokenWithAutoRefresh(supabase: any, shopId: number, userId?: s
   throw new Error(`Token not found for shop ${shopId}. Please authenticate first. Check: 1) User logged into Supabase 2) Shopee token saved to database (shops table) 3) RLS policies allow access`);
 }
 
+/**
+ * Helper function để gọi API qua proxy hoặc trực tiếp
+ */
+async function fetchWithProxy(targetUrl: string, options: RequestInit): Promise<Response> {
+  if (PROXY_URL) {
+    // Gọi qua VPS proxy
+    const proxyUrl = `${PROXY_URL}?url=${encodeURIComponent(targetUrl)}`;
+    console.log('[PROXY] Calling via proxy:', PROXY_URL);
+    return await fetch(proxyUrl, options);
+  }
+  // Gọi trực tiếp
+  return await fetch(targetUrl, options);
+}
+
 async function callShopeeAPI(
   supabase: any,
   path: string,
@@ -148,7 +163,7 @@ async function callShopeeAPI(
   const url = `${SHOPEE_BASE_URL}${path}?${params.toString()}`;
   console.log('Calling Shopee API:', path);
 
-  const response = await fetch(url, {
+  const response = await fetchWithProxy(url, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' },
   });
@@ -303,7 +318,7 @@ async function syncFlashSaleData(supabase: any, shopId: number, userId: string) 
       is_syncing: true,
     });
 
-    const response = await fetch(url, {
+    const response = await fetchWithProxy(url, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -417,7 +432,7 @@ async function syncAdsCampaignData(supabase: any, shopId: number, userId: string
     const url = `${SHOPEE_BASE_URL}${path}?${params.toString()}`;
     console.log('Calling Ads Campaign API:', path);
 
-    const response = await fetch(url, {
+    const response = await fetchWithProxy(url, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -464,7 +479,7 @@ async function syncAdsCampaignData(supabase: any, shopId: number, userId: string
         const detailUrl = `${SHOPEE_BASE_URL}${detailPath}?${detailParams.toString()}`;
         console.log('Calling Campaign Detail API:', detailPath);
 
-        const detailResponseRaw = await fetch(detailUrl, {
+        const detailResponseRaw = await fetchWithProxy(detailUrl, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' },
         });
@@ -763,8 +778,14 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Sync worker error:', error);
-    return new Response(JSON.stringify({ error: (error as Error).message }), {
-      status: 500,
+    // Trả về 200 với error trong body để frontend có thể đọc được message
+    // Thay vì 500 sẽ gây ra "non-2xx status code" không rõ ràng
+    return new Response(JSON.stringify({ 
+      error: (error as Error).message,
+      success: false,
+      details: 'Check Supabase Edge Function logs for more details'
+    }), {
+      status: 200, // Return 200 so frontend can read the error message
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
