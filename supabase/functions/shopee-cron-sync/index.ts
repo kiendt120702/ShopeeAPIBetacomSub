@@ -36,7 +36,7 @@ serve(async (req) => {
     // Lấy danh sách shops cần sync (sync_status cũ nhất)
     const { data: shopsToSync, error: fetchError } = await supabase
       .from('sync_status')
-      .select('shop_id, user_id, campaigns_synced_at, flash_sales_synced_at, shop_performance_synced_at')
+      .select('shop_id, user_id, campaigns_synced_at, flash_sales_synced_at')
       .eq('auto_sync_enabled', true)
       .eq('is_syncing', false)
       .order('campaigns_synced_at', { ascending: true, nullsFirst: true })
@@ -73,7 +73,7 @@ serve(async (req) => {
         // Check which data needs sync
         const campaignsStale = isStale(shop.campaigns_synced_at, STALE_MINUTES);
         const flashSalesStale = isStale(shop.flash_sales_synced_at, STALE_MINUTES);
-        const performanceStale = isStale(shop.shop_performance_synced_at, 30); // Performance sync every 30 min
+
 
         if (campaignsStale) {
           syncTasks.push(callSyncWorker(supabase, 'sync-ads-campaign-data', shop.shop_id, shop.user_id));
@@ -83,9 +83,7 @@ serve(async (req) => {
           syncTasks.push(callSyncWorker(supabase, 'sync-flash-sale-data', shop.shop_id, shop.user_id));
         }
 
-        if (performanceStale) {
-          syncTasks.push(callSyncWorker(supabase, 'sync-shop-performance', shop.shop_id, shop.user_id));
-        }
+
 
         if (syncTasks.length > 0) {
           const taskResults = await Promise.allSettled(syncTasks);

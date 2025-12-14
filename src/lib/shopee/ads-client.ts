@@ -274,6 +274,7 @@ import type { CampaignIdItem, CommonInfo } from './types';
 export interface CachedCampaign {
   id: string;
   shop_id: number;
+  user_id: string;
   campaign_id: number;
   ad_type: string;
   name: string | null;
@@ -285,9 +286,8 @@ export interface CachedCampaign {
   end_time: number | null;
   item_count: number;
   roas_target: number | null;
-  raw_data: any;
-  cached_at: string;
-  updated_at: string;
+  raw_response: any;
+  synced_at: string;
 }
 
 /**
@@ -322,8 +322,13 @@ export async function saveCampaignsToCache(
 ): Promise<void> {
   if (!campaigns.length) return;
 
+  // Get current user
+  const { data: { user } } = await supabase.auth.getUser();
+  const userId = user?.id;
+
   const cacheData = campaigns.map(c => ({
     shop_id: shopId,
+    user_id: userId,
     campaign_id: c.campaign_id,
     ad_type: c.ad_type,
     name: c.name || null,
@@ -335,8 +340,8 @@ export async function saveCampaignsToCache(
     end_time: c.common_info?.campaign_duration?.end_time || null,
     item_count: c.common_info?.item_id_list?.length || 0,
     roas_target: c.roas_target || null,
-    raw_data: c,
-    cached_at: new Date().toISOString(),
+    raw_response: c,
+    synced_at: new Date().toISOString(),
   }));
 
   const { error } = await supabase

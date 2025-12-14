@@ -60,6 +60,11 @@ interface CampaignOption {
   status?: string;
 }
 
+interface AdsBudgetSchedulerPanelProps {
+  preSelectedCampaignIds?: number[];
+  allCampaigns?: CampaignOption[];
+}
+
 // Khung giờ cố định
 const TIME_SLOTS = [
   { label: '00:00 - 05:59', start: 0, end: 6 },
@@ -93,7 +98,10 @@ interface DayRule {
   hours: HourRule[];
 }
 
-export default function AdsBudgetSchedulerPanel() {
+export default function AdsBudgetSchedulerPanel({ 
+  preSelectedCampaignIds = [], 
+  allCampaigns: externalCampaigns 
+}: AdsBudgetSchedulerPanelProps) {
   const { toast } = useToast();
   const { token, isAuthenticated } = useShopeeAuth();
 
@@ -341,11 +349,21 @@ export default function AdsBudgetSchedulerPanel() {
     ? allSchedules 
     : allSchedules.filter(s => s.campaign_id.toString() === filterCampaignId);
 
+  // Use external campaigns if provided, otherwise load from API
   useEffect(() => {
-    if (isAuthenticated && token?.shop_id) {
+    if (externalCampaigns && externalCampaigns.length > 0) {
+      // Filter only ongoing campaigns
+      const ongoingCampaigns = externalCampaigns.filter(c => c.status === 'ongoing');
+      setCampaigns(ongoingCampaigns);
+    } else if (isAuthenticated && token?.shop_id) {
       loadCampaigns();
     }
-  }, [isAuthenticated, token?.shop_id]);
+  }, [isAuthenticated, token?.shop_id, externalCampaigns]);
+
+  // Sync selected campaigns from parent - always sync when props change
+  useEffect(() => {
+    setSelectedCampaigns(preSelectedCampaignIds.map(id => id.toString()));
+  }, [preSelectedCampaignIds]);
 
   useEffect(() => {
     loadSchedules();
@@ -563,10 +581,10 @@ export default function AdsBudgetSchedulerPanel() {
   );
 
   return (
-    <div className="h-full flex flex-col bg-slate-50">
+    <div className="flex flex-col bg-slate-50">
       {/* Header */}
       <div className="bg-white border-b border-slate-200 p-4">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-xl flex items-center justify-center">
               <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -574,59 +592,31 @@ export default function AdsBudgetSchedulerPanel() {
               </svg>
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-slate-800">Ngân sách theo lịch trình</h2>
-              <p className="text-sm text-slate-400">Tự động điều chỉnh ngân sách theo khung giờ</p>
+              <h2 className="text-lg font-semibold text-slate-800">Lịch ngân sách tự động</h2>
+              <p className="text-sm text-slate-400">
+                {selectedCampaigns.length > 0 
+                  ? `Đã chọn ${selectedCampaigns.length} chiến dịch từ bảng trên`
+                  : 'Chọn chiến dịch từ bảng trên để thiết lập lịch'}
+              </p>
             </div>
           </div>
-        </div>
-
-        {/* Campaign Multi-Select */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-sm font-medium text-slate-700">
-              Chiến dịch đang chạy ({selectedCampaigns.length}/{campaigns.length} đã chọn)
-            </label>
-            <button
-              onClick={selectAllCampaigns}
-              className="text-sm text-blue-500 hover:text-blue-600"
-            >
-              {selectedCampaigns.length === campaigns.length ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
-            </button>
-          </div>
-          <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-2 bg-slate-50 rounded-lg">
-            {campaigns.length === 0 ? (
-              <p className="text-sm text-slate-400">Không có chiến dịch đang chạy</p>
-            ) : (
-              campaigns.map((c) => {
-                const isSelected = selectedCampaigns.includes(c.campaign_id.toString());
-                return (
-                  <button
-                    key={c.campaign_id}
-                    onClick={() => toggleCampaign(c.campaign_id.toString())}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                      isSelected
-                        ? 'bg-blue-500 text-white'
-                        : 'bg-white border border-slate-200 text-slate-700 hover:border-blue-300'
-                    }`}
-                  >
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                      isSelected
-                        ? 'bg-white/20'
-                        : c.ad_type === 'auto' ? 'bg-purple-100 text-purple-700' : 'bg-indigo-100 text-indigo-700'
-                    }`}>
-                      {c.ad_type === 'auto' ? 'Auto' : 'Manual'}
-                    </span>
-                    <span className="truncate max-w-[200px]">{c.name}</span>
-                    {isSelected && (
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                    )}
-                  </button>
-                );
-              })
-            )}
-          </div>
+          {selectedCampaigns.length > 0 && (
+            <div className="flex flex-wrap gap-2 max-w-md">
+              {selectedCampaigns.slice(0, 3).map(id => {
+                const campaign = campaigns.find(c => c.campaign_id.toString() === id);
+                return campaign ? (
+                  <span key={id} className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded-full truncate max-w-[150px]">
+                    {campaign.name}
+                  </span>
+                ) : null;
+              })}
+              {selectedCampaigns.length > 3 && (
+                <span className="text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded-full">
+                  +{selectedCampaigns.length - 3} khác
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

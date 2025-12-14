@@ -1,6 +1,7 @@
 /**
  * Supabase Edge Function: Shopee Sync Worker
  * Background worker để đồng bộ dữ liệu từ Shopee về Supabase
+ * Hỗ trợ multi-partner: lấy credentials từ database
  */
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
@@ -12,14 +13,53 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
 };
 
-const SHOPEE_PARTNER_ID = Number(Deno.env.get('SHOPEE_PARTNER_ID'));
-const SHOPEE_PARTNER_KEY = Deno.env.get('SHOPEE_PARTNER_KEY') || '';
+// Shopee API config (fallback)
+const DEFAULT_PARTNER_ID = Number(Deno.env.get('SHOPEE_PARTNER_ID'));
+const DEFAULT_PARTNER_KEY = Deno.env.get('SHOPEE_PARTNER_KEY') || '';
 const SHOPEE_BASE_URL = Deno.env.get('SHOPEE_BASE_URL') || 'https://partner.shopeemobile.com';
 const PROXY_URL = Deno.env.get('SHOPEE_PROXY_URL') || ''; // VPS Proxy URL
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 
+// Interface cho partner credentials
+interface PartnerCredentials {
+  partnerId: number;
+  partnerKey: string;
+}
+
+/**
+ * Lấy partner credentials từ database hoặc fallback env
+ */
+async function getPartnerCredentials(
+  supabase: ReturnType<typeof createClient>,
+  shopId: number
+): Promise<PartnerCredentials> {
+  // Tìm partner từ shop
+  const { data, error } = await supabase
+    .from('shops')
+    .select('partner_account_id, partner_accounts(partner_id, partner_key)')
+    .eq('shop_id', shopId)
+    .single();
+
+  if (data?.partner_accounts && !error) {
+    const pa = data.partner_accounts as { partner_id: number; partner_key: string };
+    console.log('[PARTNER] Using partner from database:', pa.partner_id);
+    return {
+      partnerId: pa.partner_id,
+      partnerKey: pa.partner_key,
+    };
+  }
+
+  // Fallback: dùng env
+  console.log('[PARTNER] Using default partner from env:', DEFAULT_PARTNER_ID);
+  return {
+    partnerId: DEFAULT_PARTNER_ID,
+    partnerKey: DEFAULT_PARTNER_KEY,
+  };
+}
+
 async function createSignature(
+  partnerKey: string,
   partnerId: number,
   path: string,
   timestamp: number,
@@ -31,7 +71,7 @@ async function createSignature(
   if (shopId) baseString += shopId;
 
   const encoder = new TextEncoder();
-  const keyData = encoder.encode(SHOPEE_PARTNER_KEY);
+  const keyData = encoder.encode(partnerKey);
   const messageData = encoder.encode(baseString);
 
   const cryptoKey = await crypto.subtle.importKey(
@@ -145,15 +185,16 @@ async function fetchWithProxy(targetUrl: string, options: RequestInit): Promise<
 
 async function callShopeeAPI(
   supabase: any,
+  credentials: PartnerCredentials,
   path: string,
   shopId: number,
   token: any
 ): Promise<any> {
   const timestamp = Math.floor(Date.now() / 1000);
-  const sign = await createSignature(SHOPEE_PARTNER_ID, path, timestamp, token.access_token, shopId);
+  const sign = await createSignature(credentials.partnerKey, credentials.partnerId, path, timestamp, token.access_token, shopId);
 
   const params = new URLSearchParams({
-    partner_id: SHOPEE_PARTNER_ID.toString(),
+    partner_id: credentials.partnerId.toString(),
     timestamp: timestamp.toString(),
     access_token: token.access_token,
     shop_id: shopId.toString(),
@@ -169,90 +210,6 @@ async function callShopeeAPI(
   });
 
   return await response.json();
-}
-
-async function syncShopPerformance(supabase: any, shopId: number, userId: string) {
-  console.log(`[SYNC] Starting shop performance sync for shop ${shopId}, user ${userId}`);
-  
-  try {
-    // Get token with userId for better lookup
-    const token = await getTokenWithAutoRefresh(supabase, shopId, userId);
-    
-    // Call Shopee API
-    const apiResponse = await callShopeeAPI(
-      supabase,
-      '/api/v2/account_health/get_shop_performance',
-      shopId,
-      token
-    );
-
-    if (apiResponse.error) {
-      throw new Error(`Shopee API error: ${apiResponse.message}`);
-    }
-
-    const { overall_performance, metric_list } = apiResponse.response;
-
-    // Save performance data (upsert by shop_id + user_id)
-    const { error: performanceError } = await supabase
-      .from('shop_performance_data')
-      .upsert({
-        shop_id: shopId,
-        user_id: userId,
-        rating: overall_performance.rating,
-        fulfillment_failed: overall_performance.fulfillment_failed,
-        listing_failed: overall_performance.listing_failed,
-        custom_service_failed: overall_performance.custom_service_failed,
-        raw_response: apiResponse.response,
-        synced_at: new Date().toISOString(),
-      }, {
-        onConflict: 'shop_id,user_id',
-      });
-
-    if (performanceError) {
-      console.error('Failed to save performance data:', performanceError);
-    }
-
-    // Batch upsert tất cả metrics cùng lúc (nhanh hơn nhiều)
-    if (metric_list && metric_list.length > 0) {
-      const now = new Date().toISOString();
-      const metricsToUpsert = metric_list.map((metric: any) => ({
-        shop_id: shopId,
-        user_id: userId,
-        metric_id: metric.metric_id,
-        metric_name: metric.metric_name,
-        metric_type: metric.metric_type,
-        parent_metric_id: metric.parent_metric_id,
-        current_period: metric.current_period,
-        last_period: metric.last_period,
-        unit: metric.unit,
-        target_value: metric.target.value,
-        target_comparator: metric.target.comparator,
-        is_passing: calculateMetricStatus(metric),
-        exemption_end_date: metric.exemption_end_date || null,
-        synced_at: now,
-      }));
-
-      const { error: metricsError } = await supabase
-        .from('shop_metrics_data')
-        .upsert(metricsToUpsert, {
-          onConflict: 'shop_id,metric_id,user_id',
-        });
-
-      if (metricsError) {
-        console.error('[SYNC] Failed to batch upsert metrics:', metricsError);
-      }
-    }
-
-    // Update sync_status
-    await updateSyncStatus(supabase, shopId, userId, 'shop_performance_synced_at');
-
-    console.log(`[SYNC] Completed shop performance sync for shop ${shopId}`);
-    return { success: true, metrics_count: metric_list.length };
-
-  } catch (error) {
-    console.error(`[SYNC] Failed shop performance sync for shop ${shopId}:`, error);
-    throw error;
-  }
 }
 
 // Helper function to update sync progress (realtime)
@@ -287,6 +244,9 @@ async function syncFlashSaleData(supabase: any, shopId: number, userId: string) 
       is_syncing: true,
     });
 
+    // Lấy partner credentials từ database
+    const credentials = await getPartnerCredentials(supabase, shopId);
+
     // Get token with userId for better lookup
     const token = await getTokenWithAutoRefresh(supabase, shopId, userId);
     
@@ -294,10 +254,10 @@ async function syncFlashSaleData(supabase: any, shopId: number, userId: string) 
     const timestamp = Math.floor(Date.now() / 1000);
     // Sử dụng Shop Flash Sale API (không phải Platform Flash Sale)
     const path = '/api/v2/shop_flash_sale/get_shop_flash_sale_list';
-    const sign = await createSignature(SHOPEE_PARTNER_ID, path, timestamp, token.access_token, shopId);
+    const sign = await createSignature(credentials.partnerKey, credentials.partnerId, path, timestamp, token.access_token, shopId);
 
     const params = new URLSearchParams({
-      partner_id: SHOPEE_PARTNER_ID.toString(),
+      partner_id: credentials.partnerId.toString(),
       timestamp: timestamp.toString(),
       access_token: token.access_token,
       shop_id: shopId.toString(),
@@ -344,12 +304,11 @@ async function syncFlashSaleData(supabase: any, shopId: number, userId: string) 
       is_syncing: true,
     });
 
-    // Clear old data for this shop
+    // Clear old data for this shop (không filter user_id để tất cả user có quyền truy cập shop đều thấy dữ liệu mới)
     await supabase
       .from('flash_sale_data')
       .delete()
-      .eq('shop_id', shopId)
-      .eq('user_id', userId);
+      .eq('shop_id', shopId);
 
     // Batch insert tất cả flash sales cùng lúc (nhanh hơn nhiều)
     if (flashSaleList.length > 0) {
@@ -412,16 +371,19 @@ async function syncAdsCampaignData(supabase: any, shopId: number, userId: string
   console.log(`[SYNC] Starting ads campaign sync for shop ${shopId}, user ${userId}`);
   
   try {
+    // Lấy partner credentials từ database
+    const credentials = await getPartnerCredentials(supabase, shopId);
+
     // Get token with userId for better lookup
     const token = await getTokenWithAutoRefresh(supabase, shopId, userId);
     
     // Call Shopee API for campaign list
     const timestamp = Math.floor(Date.now() / 1000);
     const path = '/api/v2/ads/get_campaign_id_list';
-    const sign = await createSignature(SHOPEE_PARTNER_ID, path, timestamp, token.access_token, shopId);
+    const sign = await createSignature(credentials.partnerKey, credentials.partnerId, path, timestamp, token.access_token, shopId);
 
     const params = new URLSearchParams({
-      partner_id: SHOPEE_PARTNER_ID.toString(),
+      partner_id: credentials.partnerId.toString(),
       timestamp: timestamp.toString(),
       access_token: token.access_token,
       shop_id: shopId.toString(),
@@ -445,12 +407,11 @@ async function syncAdsCampaignData(supabase: any, shopId: number, userId: string
 
     const campaignList = apiResponse.response?.campaign_list || [];
 
-    // Clear old data for this shop
+    // Clear old data for this shop (không filter user_id để tất cả user có quyền truy cập shop đều thấy dữ liệu mới)
     await supabase
       .from('ads_campaign_data')
       .delete()
-      .eq('shop_id', shopId)
-      .eq('user_id', userId);
+      .eq('shop_id', shopId);
 
     // Get detailed info for campaigns in batches
     const batchSize = 100;
@@ -464,10 +425,10 @@ async function syncAdsCampaignData(supabase: any, shopId: number, userId: string
         // Get campaign details
         const detailTimestamp = Math.floor(Date.now() / 1000);
         const detailPath = '/api/v2/ads/get_campaign_setting_info';
-        const detailSign = await createSignature(SHOPEE_PARTNER_ID, detailPath, detailTimestamp, token.access_token, shopId);
+        const detailSign = await createSignature(credentials.partnerKey, credentials.partnerId, detailPath, detailTimestamp, token.access_token, shopId);
 
         const detailParams = new URLSearchParams({
-          partner_id: SHOPEE_PARTNER_ID.toString(),
+          partner_id: credentials.partnerId.toString(),
           timestamp: detailTimestamp.toString(),
           access_token: token.access_token,
           shop_id: shopId.toString(),
@@ -534,22 +495,6 @@ async function syncAdsCampaignData(supabase: any, shopId: number, userId: string
   }
 }
 
-function calculateMetricStatus(metric: any): boolean {
-  if (metric.current_period === null) return false;
-  
-  const { value, comparator } = metric.target;
-  const current = metric.current_period;
-  
-  switch (comparator) {
-    case '<': return current < value;
-    case '<=': return current <= value;
-    case '>': return current > value;
-    case '>=': return current >= value;
-    case '=': return current === value;
-    default: return false;
-  }
-}
-
 // Helper function to update sync_status table
 async function updateSyncStatus(supabase: any, shopId: number, userId: string, field: string) {
   const now = new Date().toISOString();
@@ -599,52 +544,6 @@ serve(async (req) => {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
     switch (action) {
-      case 'sync-shop-performance': {
-        if (!shop_id || !user_id) {
-          return new Response(JSON.stringify({ error: 'shop_id and user_id are required' }), {
-            status: 400,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
-
-        // Update job status to running
-        if (job_id) {
-          await updateSyncJob(supabase, job_id, {
-            status: 'running',
-            started_at: new Date().toISOString()
-          });
-        }
-
-        try {
-          const result = await syncShopPerformance(supabase, shop_id, user_id);
-          
-          // Update job status to completed
-          if (job_id) {
-            await updateSyncJob(supabase, job_id, {
-              status: 'completed',
-              completed_at: new Date().toISOString(),
-              processed_items: result.metrics_count,
-              total_items: result.metrics_count
-            });
-          }
-
-          return new Response(JSON.stringify(result), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-
-        } catch (syncError) {
-          // Update job status to failed
-          if (job_id) {
-            await updateSyncJob(supabase, job_id, {
-              status: 'failed',
-              error_message: (syncError as Error).message,
-              completed_at: new Date().toISOString()
-            });
-          }
-          throw syncError;
-        }
-      }
-
       case 'sync-flash-sale-data': {
         if (!shop_id || !user_id) {
           return new Response(JSON.stringify({ error: 'shop_id and user_id are required' }), {

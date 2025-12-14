@@ -7,12 +7,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useToast } from '@/hooks/use-toast';
 
-export type SyncType = 'campaigns' | 'flash_sales' | 'shop_performance' | 'all';
+export type SyncType = 'campaigns' | 'flash_sales' | 'all';
 
 interface SyncStatus {
   campaigns_synced_at: string | null;
   flash_sales_synced_at: string | null;
-  shop_performance_synced_at: string | null;
   is_syncing: boolean;
   last_sync_error: string | null;
 }
@@ -77,8 +76,7 @@ export function useSyncData(options: UseSyncDataOptions) {
       const actionMap: Record<SyncType, string[]> = {
         campaigns: ['sync-ads-campaign-data'],
         flash_sales: ['sync-flash-sale-data'],
-        shop_performance: ['sync-shop-performance'],
-        all: ['sync-ads-campaign-data', 'sync-flash-sale-data', 'sync-shop-performance'],
+        all: ['sync-ads-campaign-data', 'sync-flash-sale-data'],
       };
 
       const actions = actionMap[type];
@@ -156,9 +154,6 @@ export function useSyncData(options: UseSyncDataOptions) {
       }
       if (syncType === 'all' || syncType === 'flash_sales') {
         needsSync = needsSync || isDataStale(status.flash_sales_synced_at);
-      }
-      if (syncType === 'all' || syncType === 'shop_performance') {
-        needsSync = needsSync || isDataStale(status.shop_performance_synced_at);
       }
 
       if (needsSync && !status.is_syncing) {

@@ -9,25 +9,27 @@ import type { AccessToken } from './types';
 /**
  * Tạo URL xác thực để redirect user đến Shopee
  * @param callbackUrl - URL callback sau khi user authorize
+ * @param partnerAccountId - ID của partner account (optional)
  */
-export function getAuthorizationUrl(callbackUrl: string): string {
+export function getAuthorizationUrl(callbackUrl: string, partnerAccountId?: string): string | Promise<string> {
   const sdk = getShopeeSDK();
-  return sdk.getAuthorizationUrl(callbackUrl);
+  // SDK có thể trả về Promise nếu dùng Supabase backend
+  return sdk.getAuthorizationUrl(callbackUrl, partnerAccountId);
 }
 
 /**
  * Đổi authorization code lấy access token
  * @param code - Authorization code từ callback
  * @param shopId - Shop ID (optional)
- * @param mainAccountId - Main account ID cho multi-shop (optional)
+ * @param partnerAccountId - ID của partner account (optional)
  */
 export async function authenticateWithCode(
   code: string,
   shopId?: number,
-  mainAccountId?: number
+  partnerAccountId?: string
 ): Promise<AccessToken> {
   const sdk = getShopeeSDK();
-  return await sdk.authenticateWithCode(code, shopId, mainAccountId);
+  return await sdk.authenticateWithCode(code, shopId, partnerAccountId);
 }
 
 /**

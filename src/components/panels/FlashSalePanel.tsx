@@ -166,15 +166,15 @@ export default function FlashSalePanel() {
   
   // Load flash sales từ DB
   const loadFlashSalesFromDB = async () => {
-    if (!token?.shop_id || !user?.id) return;
+    if (!token?.shop_id) return;
     
     setLoading(true);
     try {
+      // Load theo shop_id, không filter user_id để tất cả user có quyền truy cập shop đều thấy
       const { data, error } = await supabase
         .from('flash_sale_data')
         .select('*')
         .eq('shop_id', token.shop_id)
-        .eq('user_id', user.id)
         .order('type', { ascending: true });
 
       if (error) throw error;
@@ -194,14 +194,16 @@ export default function FlashSalePanel() {
 
   // Load sync status
   const loadSyncStatus = async () => {
-    if (!token?.shop_id || !user?.id) return;
+    if (!token?.shop_id) return;
     
     try {
+      // Load theo shop_id, lấy record mới nhất
       const { data, error } = await supabase
         .from('sync_status')
         .select('flash_sales_synced_at, is_syncing')
         .eq('shop_id', token.shop_id)
-        .eq('user_id', user.id)
+        .order('updated_at', { ascending: false })
+        .limit(1)
         .single();
 
       if (!error && data) {
@@ -318,12 +320,12 @@ export default function FlashSalePanel() {
   // ============================================
   
   useEffect(() => {
-    if (!token?.shop_id || !user?.id) return;
+    if (!token?.shop_id) return;
 
     // Load initial data
     loadFlashSalesFromDB();
     loadSyncStatus();
-  }, [token?.shop_id, user?.id]);
+  }, [token?.shop_id]);
 
   // ============================================
   // ACTIONS (Vẫn gọi API trực tiếp cho Write operations)

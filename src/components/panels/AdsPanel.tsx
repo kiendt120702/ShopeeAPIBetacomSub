@@ -43,6 +43,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 import AdsBudgetSchedulerPanel from './AdsBudgetSchedulerPanel';
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
@@ -80,8 +81,8 @@ export default function AdsPanel() {
   const { toast } = useToast();
   const { token, isAuthenticated } = useShopeeAuth();
   
-  // Main tab
-  const [mainTab, setMainTab] = useState<'campaigns' | 'scheduler'>('campaigns');
+  // Selected campaigns for scheduler
+  const [selectedCampaignIds, setSelectedCampaignIds] = useState<number[]>([]);
   
   // Campaign states
   const [loading, setLoading] = useState(false);
@@ -89,7 +90,7 @@ export default function AdsPanel() {
   const [campaigns, setCampaigns] = useState<CampaignWithFullInfo[]>([]);
   const [allCampaigns, setAllCampaigns] = useState<CampaignWithFullInfo[]>([]); // Store all data
   const [filterType, setFilterType] = useState<string>('all');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [filterStatus, setFilterStatus] = useState<string>('ongoing'); // Mặc định lọc "Đang chạy"
   const [lastCachedAt, setLastCachedAt] = useState<string | null>(null);
   
   // Pagination
@@ -110,10 +111,10 @@ export default function AdsPanel() {
 
   // Auto-load campaigns khi vào trang - ưu tiên cache
   useEffect(() => {
-    if (isAuthenticated && token?.shop_id && campaigns.length === 0 && mainTab === 'campaigns') {
+    if (isAuthenticated && token?.shop_id && campaigns.length === 0) {
       loadCampaignsWithCache();
     }
-  }, [isAuthenticated, token?.shop_id, mainTab]);
+  }, [isAuthenticated, token?.shop_id]);
 
   // Load từ cache trước, sau đó background refresh
   const loadCampaignsWithCache = async () => {
@@ -362,51 +363,21 @@ export default function AdsPanel() {
     }
   };
 
-  // Render Scheduler Tab
-  if (mainTab === 'scheduler') {
-    return (
-      <div className="h-full flex flex-col">
-        {/* Tab Header */}
-        <div className="bg-white border-b border-slate-200 px-4 py-2">
-          <div className="flex gap-1">
-            <button
-              onClick={() => setMainTab('campaigns')}
-              className="px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-700 rounded-lg"
-            >
-              📊 Chiến dịch
-            </button>
-            <button
-              onClick={() => setMainTab('scheduler')}
-              className="px-4 py-2 text-sm font-medium bg-emerald-100 text-emerald-700 rounded-lg"
-            >
-              ⏰ Lịch ngân sách
-            </button>
-          </div>
-        </div>
-        <AdsBudgetSchedulerPanel />
-      </div>
-    );
-  }
-
-
   return (
     <div className="flex flex-col bg-slate-50 min-h-full">
-      {/* Tab Header */}
-      <div className="bg-white border-b border-slate-200 px-4 py-2">
-        <div className="flex gap-1">
-          <button
-            onClick={() => setMainTab('campaigns')}
-            className="px-4 py-2 text-sm font-medium bg-blue-100 text-blue-700 rounded-lg"
-          >
-            📊 Chiến dịch
-          </button>
-          <button
-            onClick={() => setMainTab('scheduler')}
-            className="px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-700 rounded-lg"
-          >
-            ⏰ Lịch ngân sách
-          </button>
-        </div>
+
+      {/* Budget Scheduler Section - Đặt lên trên */}
+      <div className="border-b border-slate-200">
+        <AdsBudgetSchedulerPanel 
+          preSelectedCampaignIds={selectedCampaignIds}
+          allCampaigns={allCampaigns.map(c => ({
+            campaign_id: c.campaign_id,
+            name: c.name || `Campaign ${c.campaign_id}`,
+            ad_type: c.ad_type,
+            current_budget: c.common_info?.campaign_budget || 0,
+            status: c.status,
+          }))}
+        />
       </div>
 
       {/* Header */}
@@ -520,12 +491,21 @@ export default function AdsPanel() {
               <Table className="min-w-[1300px]">
             <TableHeader className="sticky top-0 bg-slate-50 z-10">
               <TableRow>
+                <TableHead className="w-[50px] text-center">
+                  <Checkbox
+                    checked={selectedCampaignIds.length === filteredCampaigns.length && filteredCampaigns.length > 0}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        setSelectedCampaignIds(filteredCampaigns.map(c => c.campaign_id));
+                      } else {
+                        setSelectedCampaignIds([]);
+                      }
+                    }}
+                  />
+                </TableHead>
                 <TableHead className="w-[350px]">Chiến dịch</TableHead>
                 <TableHead className="text-center">Vị trí</TableHead>
-                <TableHead className="text-center">Đấu giá</TableHead>
                 <TableHead className="text-center">Ngân sách</TableHead>
-                <TableHead className="text-center">ROAS</TableHead>
-                <TableHead className="text-center">SP</TableHead>
                 <TableHead className="text-center">Thời gian</TableHead>
                 <TableHead className="text-center w-[100px]">Thao tác</TableHead>
               </TableRow>
@@ -533,8 +513,21 @@ export default function AdsPanel() {
             <TableBody>
               {filteredCampaigns.map((campaign) => {
                 const statusInfo = campaign.status ? STATUS_MAP[campaign.status] : null;
+                const isSelected = selectedCampaignIds.includes(campaign.campaign_id);
                 return (
-                  <TableRow key={campaign.campaign_id} className="hover:bg-slate-50">
+                  <TableRow key={campaign.campaign_id} className={`hover:bg-slate-50 ${isSelected ? 'bg-blue-50' : ''}`}>
+                    <TableCell className="text-center">
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setSelectedCampaignIds(prev => [...prev, campaign.campaign_id]);
+                          } else {
+                            setSelectedCampaignIds(prev => prev.filter(id => id !== campaign.campaign_id));
+                          }
+                        }}
+                      />
+                    </TableCell>
                     <TableCell>
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
@@ -554,23 +547,10 @@ export default function AdsPanel() {
                     <TableCell className="text-center text-sm text-slate-600">
                       {PLACEMENT_MAP[campaign.common_info?.campaign_placement || ''] || '-'}
                     </TableCell>
-                    <TableCell className="text-center text-sm text-slate-600">
-                      {campaign.common_info?.bidding_method === 'auto' ? 'Tự động' : 'Thủ công'}
-                    </TableCell>
                     <TableCell className="text-center">
                       <span className="font-medium text-slate-700">
                         {campaign.common_info?.campaign_budget === 0 ? 'Không giới hạn' : formatPrice(campaign.common_info?.campaign_budget || 0)}
                       </span>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {campaign.roas_target ? (
-                        <span className="font-medium text-purple-600">{campaign.roas_target}x</span>
-                      ) : (
-                        <span className="text-slate-400">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center font-medium text-slate-700">
-                      {campaign.common_info?.item_id_list?.length || 0}
                     </TableCell>
                     <TableCell className="text-center text-xs">
                       <div className="text-slate-600">{formatDate(campaign.common_info?.campaign_duration?.start_time || 0)}</div>
@@ -612,6 +592,40 @@ export default function AdsPanel() {
           </div>
         )}
       </div>
+
+      {/* Selected Campaigns Action Bar */}
+      {selectedCampaignIds.length > 0 && (
+        <div className="bg-blue-50 border-t border-blue-200 p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium text-blue-700">
+                Đã chọn {selectedCampaignIds.length} chiến dịch
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedCampaignIds([])}
+                className="text-blue-600 hover:text-blue-700"
+              >
+                Bỏ chọn tất cả
+              </Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  // Scroll to scheduler section at top
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+              >
+                ⏰ Xem lịch ngân sách
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Edit Budget Dialog */}
       <Dialog open={editBudgetOpen} onOpenChange={setEditBudgetOpen}>

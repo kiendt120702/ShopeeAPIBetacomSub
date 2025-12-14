@@ -7,15 +7,14 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useShopeeAuth } from '@/hooks/useShopeeAuth';
 import FlashSaleManagerPanel from '@/components/panels/FlashSaleManagerPanel';
-import ProductInfoPanel from '@/components/panels/ProductInfoPanel';
 import AdsPanel from '@/components/panels/AdsPanel';
-import ShopPerformancePanel from '@/components/panels/ShopPerformancePanel';
 import UserProfilePanel from '@/components/panels/UserProfilePanel';
+// PartnerAccountsPanel đã được tích hợp vào UserProfilePanel
 
 import AuthPage from '@/pages/Auth';
 import { cn } from '@/lib/utils';
 
-type MenuId = 'dashboard' | 'flash-sale' | 'products' | 'ads' | 'shop-performance' | 'profile';
+type MenuId = 'dashboard' | 'flash-sale' | 'ads' | 'profile';
 
 interface MenuItem {
   id: MenuId;
@@ -48,20 +47,6 @@ const menuItems: MenuItem[] = [
     description: 'Quản lý chiến dịch quảng cáo'
   },
   { 
-    id: 'products',
-    path: '/products',
-    label: 'Sản phẩm', 
-    icon: <PackageIcon />,
-    description: 'Thông tin chi tiết sản phẩm'
-  },
-  { 
-    id: 'shop-performance',
-    path: '/shop-performance',
-    label: 'Hiệu suất Shop', 
-    icon: <PerformanceIcon />,
-    description: 'Theo dõi hiệu suất và chỉ số shop'
-  },
-  { 
     id: 'profile',
     path: '/profile',
     label: 'Tài khoản', 
@@ -69,6 +54,8 @@ const menuItems: MenuItem[] = [
     description: 'Thông tin tài khoản của bạn'
   },
 ];
+
+// Partner Accounts đã được tích hợp vào trang Profile
 
 function DashboardIcon() {
   return (
@@ -87,13 +74,7 @@ function FlameIcon() {
   );
 }
 
-function PackageIcon() {
-  return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-    </svg>
-  );
-}
+
 
 function AdsIcon() {
   return (
@@ -104,21 +85,9 @@ function AdsIcon() {
   );
 }
 
-function StoreIcon() {
-  return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-    </svg>
-  );
-}
 
-function PerformanceIcon() {
-  return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-    </svg>
-  );
-}
+
+
 
 function UserIcon() {
   return (
@@ -130,8 +99,99 @@ function UserIcon() {
 
 
 
+
+
+// Shop Selector Component
+function ShopSelector() {
+  const { token, shops, selectedShopId, switchShop, isLoading } = useShopeeAuth();
+  const [open, setOpen] = useState(false);
+  
+  const currentShop = shops.find(s => s.shop_id === selectedShopId) || 
+    (token?.shop_id ? { shop_id: token.shop_id, shop_name: `Shop ${token.shop_id}`, region: 'VN' } : null);
+  
+  if (!currentShop) return null;
+  
+  const handleSwitchShop = async (shopId: number) => {
+    setOpen(false);
+    if (shopId !== selectedShopId) {
+      await switchShop(shopId);
+      // Reload page để refresh data
+      window.location.reload();
+    }
+  };
+  
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        disabled={isLoading || shops.length <= 1}
+        className={cn(
+          "flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-colors",
+          shops.length > 1 
+            ? "bg-orange-50 border-orange-200 hover:bg-orange-100 cursor-pointer" 
+            : "bg-slate-50 border-slate-200 cursor-default"
+        )}
+      >
+        <div className="w-6 h-6 bg-orange-100 rounded flex items-center justify-center">
+          <svg className="w-4 h-4 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+          </svg>
+        </div>
+        <div className="text-left">
+          <p className="text-xs text-slate-500">Shop đang chọn</p>
+          <p className="text-sm font-medium text-slate-700 max-w-[150px] truncate">
+            {currentShop.shop_name || `Shop ${currentShop.shop_id}`}
+          </p>
+        </div>
+        {shops.length > 1 && (
+          <svg className={cn("w-4 h-4 text-slate-400 transition-transform", open && "rotate-180")} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        )}
+      </button>
+      
+      {/* Dropdown */}
+      {open && shops.length > 1 && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-xl shadow-lg border border-slate-200 py-2 z-20 max-h-80 overflow-auto">
+            <p className="px-3 py-1 text-xs text-slate-400 font-medium">Chọn shop</p>
+            {shops.map((shop) => (
+              <button
+                key={shop.shop_id}
+                onClick={() => handleSwitchShop(shop.shop_id)}
+                className={cn(
+                  "w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-3",
+                  shop.shop_id === selectedShopId && "bg-orange-50"
+                )}
+              >
+                <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <svg className="w-4 h-4 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-700 truncate">
+                    {shop.shop_name || `Shop ${shop.shop_id}`}
+                  </p>
+                  <p className="text-xs text-slate-400">ID: {shop.shop_id}</p>
+                </div>
+                {shop.shop_id === selectedShopId && (
+                  <svg className="w-4 h-4 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                )}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // Banner kết nối shop cho tài khoản mới
-function ConnectShopBanner({ onConnect, error, isLoading }: { onConnect: () => void; error?: string | null; isLoading?: boolean }) {
+function ConnectShopBanner({ onConnect, error, isLoading, canConnect }: { onConnect: () => void; error?: string | null; isLoading?: boolean; canConnect?: boolean }) {
   return (
     <div className="h-full flex items-center justify-center p-6">
       <div className="max-w-md text-center">
@@ -140,37 +200,43 @@ function ConnectShopBanner({ onConnect, error, isLoading }: { onConnect: () => v
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
         </div>
-        <h2 className="text-xl font-bold text-slate-800 mb-2">Kết nối Shop Shopee</h2>
+        <h2 className="text-xl font-bold text-slate-800 mb-2">
+          {canConnect ? 'Kết nối Shop Shopee' : 'Chưa có quyền truy cập Shop'}
+        </h2>
         <p className="text-slate-500 text-sm mb-4">
-          Kết nối shop để quản lý Flash Sale, hẹn giờ và xem thông tin sản phẩm.
+          {canConnect 
+            ? 'Kết nối shop để quản lý Flash Sale, hẹn giờ và xem thông tin sản phẩm.'
+            : 'Liên hệ Admin để được phân quyền truy cập shop.'}
         </p>
         {error && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
             {error}
           </div>
         )}
-        <button
-          onClick={onConnect}
-          disabled={isLoading}
-          className="px-5 py-2.5 bg-orange-500 text-white font-medium rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 mx-auto"
-        >
-          {isLoading ? (
-            <>
-              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              Đang kết nối...
-            </>
-          ) : (
-            <>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-              </svg>
-              Kết nối với Shopee
-            </>
-          )}
-        </button>
+        {canConnect && (
+          <button
+            onClick={onConnect}
+            disabled={isLoading}
+            className="px-5 py-2.5 bg-orange-500 text-white font-medium rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 mx-auto"
+          >
+            {isLoading ? (
+              <>
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Đang kết nối...
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                </svg>
+                Kết nối với Shopee
+              </>
+            )}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -190,18 +256,6 @@ function DashboardPanel({ onNavigate }: { onNavigate: (path: string) => void }) 
       icon: <AdsIcon />,
       title: 'Quảng cáo',
       description: 'Quản lý chiến dịch và lên lịch ngân sách tự động',
-    },
-    {
-      path: '/products',
-      icon: <PackageIcon />,
-      title: 'Sản phẩm',
-      description: 'Tra cứu thông tin chi tiết sản phẩm',
-    },
-    {
-      path: '/shop-performance',
-      icon: <PerformanceIcon />,
-      title: 'Hiệu suất Shop',
-      description: 'Theo dõi hiệu suất và chỉ số shop',
     },
     {
       path: '/profile',
@@ -279,8 +333,14 @@ const Index = () => {
   const navigate = useNavigate();
   
   // Auth states
-  const { user, isAuthenticated: isUserAuthenticated, isLoading: isUserLoading, signOut } = useAuth();
-  const { token, isLoading: isShopeeLoading, error: shopeeError, login: connectShopee, logout: disconnectShopee, shops, selectedShopId, switchShop } = useShopeeAuth();
+  const { user, profile, isAuthenticated: isUserAuthenticated, isLoading: isUserLoading, signOut } = useAuth();
+  const { token, isLoading: isShopeeLoading, error: shopeeError, login: connectShopee, logout: disconnectShopee } = useShopeeAuth();
+  
+  const canManageShops = profile?.role === 'admin' || profile?.role === 'super_admin' || 
+                         profile?.role_name === 'admin' || profile?.role_name === 'super_admin';
+  
+  // All menu items (Partner Accounts integrated into Profile)
+  const allMenuItems = menuItems;
   const [connectingShopee, setConnectingShopee] = useState(false);
 
   const handleConnectShopee = async () => {
@@ -298,13 +358,12 @@ const Index = () => {
   
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const [showShopMenu, setShowShopMenu] = useState(false);
 
   const isShopConnected = !!token?.shop_id;
   
   // Get active menu from URL path
-  const activeMenu = menuItems.find(m => m.path === location.pathname)?.id || 'dashboard';
-  const currentMenuItem = menuItems.find(m => m.id === activeMenu);
+  const activeMenu = allMenuItems.find(m => m.path === location.pathname)?.id || 'dashboard';
+  const currentMenuItem = allMenuItems.find(m => m.id === activeMenu);
 
   const handleNavigate = (path: string) => {
     navigate(path);
@@ -325,9 +384,11 @@ const Index = () => {
       );
     }
     
+    // Partner Accounts đã được tích hợp vào Profile
+    
     // Các trang khác cần kết nối shop
     if (!isShopConnected) {
-      return <ConnectShopBanner onConnect={handleConnectShopee} error={shopeeError} isLoading={connectingShopee} />;
+      return <ConnectShopBanner onConnect={handleConnectShopee} error={shopeeError} isLoading={connectingShopee} canConnect={canManageShops} />;
     }
     
     switch (activeMenu) {
@@ -335,14 +396,6 @@ const Index = () => {
         return <FlashSaleManagerPanel />;
       case 'ads':
         return <AdsPanel />;
-      case 'products':
-        return <ProductInfoPanel />;
-      case 'shop-performance':
-        return (
-          <div className="p-6">
-            <ShopPerformancePanel shopId={token.shop_id!} />
-          </div>
-        );
       default:
         return <DashboardPanel onNavigate={handleNavigate} />;
     }
@@ -400,7 +453,7 @@ const Index = () => {
 
         {/* Navigation */}
         <nav className="flex-1 p-2 space-y-1">
-          {menuItems.map((item) => {
+          {allMenuItems.map((item) => {
             const isActive = activeMenu === item.id;
             return (
               <button
@@ -449,81 +502,10 @@ const Index = () => {
           </h2>
           
           <div className="flex items-center gap-3">
-            {/* Shop selector */}
+            {/* Shop Selector */}
             {isShopConnected && (
-              <div className="relative">
-                <button
-                  onClick={() => setShowShopMenu(!showShopMenu)}
-                  className="flex items-center gap-2 bg-emerald-50 hover:bg-emerald-100 rounded-full px-3 py-1.5 transition-colors"
-                >
-                  <div className="w-2 h-2 bg-emerald-500 rounded-full" />
-                  <span className="text-sm text-emerald-700">
-                    Shop: <span className="font-medium">
-                      {shops.find(s => s.shop_id === selectedShopId)?.shop_name || token?.shop_id}
-                    </span>
-                  </span>
-                  <svg className={cn("w-3 h-3 text-emerald-600 transition-transform", showShopMenu && "rotate-180")} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                
-                {/* Shop dropdown */}
-                {showShopMenu && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setShowShopMenu(false)} />
-                    <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-20">
-                      <div className="px-3 py-2 border-b border-slate-100">
-                        <p className="text-xs font-medium text-slate-500">Chọn shop</p>
-                      </div>
-                      {shops.map((shop) => (
-                        <button
-                          key={shop.shop_id}
-                          onClick={() => { switchShop(shop.shop_id); setShowShopMenu(false); }}
-                          className={cn(
-                            "w-full px-3 py-2.5 text-left hover:bg-slate-50 flex items-center gap-3",
-                            shop.shop_id === selectedShopId && "bg-emerald-50"
-                          )}
-                        >
-                          {shop.shop_logo ? (
-                            <img src={shop.shop_logo} alt="" className="w-8 h-8 rounded-lg object-cover" />
-                          ) : (
-                            <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center">
-                              <StoreIcon />
-                            </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-slate-700 truncate">
-                              {shop.shop_name || `Shop #${shop.shop_id}`}
-                            </p>
-                            <p className="text-xs text-slate-400">ID: {shop.shop_id}</p>
-                          </div>
-                          {shop.shop_id === selectedShopId && (
-                            <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                            </svg>
-                          )}
-                        </button>
-                      ))}
-                      {/* Nút thêm shop */}
-                      <div className="border-t border-slate-100 mt-1 pt-1">
-                        <button
-                          onClick={() => { handleConnectShopee(); setShowShopMenu(false); }}
-                          className="w-full px-3 py-2.5 text-left hover:bg-orange-50 flex items-center gap-3 text-orange-600"
-                        >
-                          <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                            </svg>
-                          </div>
-                          <span className="text-sm font-medium">Thêm shop mới</span>
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
+              <ShopSelector />
             )}
-            
             {/* User menu */}
             <div className="relative">
               <button

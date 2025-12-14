@@ -13,17 +13,10 @@ serve(async (req) => {
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
-    // Lấy danh sách shops cần sync (dữ liệu cũ hơn 4 giờ)
-    const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
-    
+    // Lấy danh sách shops cần sync
     const { data: shopsToSync, error } = await supabase
       .from('shopee_tokens')
-      .select(`
-        shop_id,
-        user_id,
-        shop_performance_data!left(synced_at)
-      `)
-      .or(`shop_performance_data.synced_at.is.null,shop_performance_data.synced_at.lt.${fourHoursAgo}`)
+      .select('shop_id, user_id')
       .limit(10); // Giới hạn 10 shops mỗi lần chạy để tránh timeout
 
     if (error) {
@@ -36,31 +29,12 @@ serve(async (req) => {
     
     for (const shop of shopsToSync || []) {
       try {
-        // Tạo sync job
-        const { data: job, error: jobError } = await supabase
-          .from('sync_jobs')
-          .insert({
-            shop_id: shop.shop_id,
-            user_id: shop.user_id,
-            job_type: 'shop_performance',
-            status: 'pending',
-            next_run_at: new Date().toISOString()
-          })
-          .select()
-          .single();
-
-        if (jobError) {
-          console.error(`Failed to create job for shop ${shop.shop_id}:`, jobError);
-          continue;
-        }
-
-        // Trigger sync worker
+        // Trigger sync worker for flash sales
         const { data: syncResult, error: syncError } = await supabase.functions.invoke('shopee-sync-worker', {
           body: {
-            action: 'sync-shop-performance',
+            action: 'sync-flash-sale-data',
             shop_id: shop.shop_id,
             user_id: shop.user_id,
-            job_id: job.id
           }
         });
 
@@ -69,7 +43,7 @@ serve(async (req) => {
           results.push({ shop_id: shop.shop_id, status: 'failed', error: syncError.message });
         } else {
           console.log(`Sync completed for shop ${shop.shop_id}`);
-          results.push({ shop_id: shop.shop_id, status: 'completed', metrics: syncResult.metrics_count });
+          results.push({ shop_id: shop.shop_id, status: 'completed' });
         }
 
         // Delay giữa các requests để tránh rate limiting

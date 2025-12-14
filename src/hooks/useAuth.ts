@@ -7,9 +7,23 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { User, Session } from '@supabase/supabase-js';
 
+interface Profile {
+  id: string;
+  email: string;
+  full_name: string | null;
+  avatar_url: string | null;
+  role: 'user' | 'admin' | 'super_admin'; // Legacy role field
+  role_name: string; // New role system
+  role_display_name: string;
+  promoted_from_user: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 interface AuthState {
   user: User | null;
   session: Session | null;
+  profile: Profile | null;
   isLoading: boolean;
   error: string | null;
 }
@@ -18,9 +32,16 @@ export function useAuth() {
   const [state, setState] = useState<AuthState>({
     user: null,
     session: null,
+    profile: null,
     isLoading: true,
     error: null,
   });
+
+  // Load profile khi có user
+  const loadProfile = async (userId: string) => {
+    const profile = await getUserProfile(userId);
+    setState(prev => ({ ...prev, profile: profile as Profile | null }));
+  };
 
   useEffect(() => {
     // Lấy session hiện tại
@@ -31,6 +52,11 @@ export function useAuth() {
         user: session?.user ?? null,
         isLoading: false,
       }));
+      
+      // Load profile nếu có user
+      if (session?.user) {
+        loadProfile(session.user.id);
+      }
     });
 
     // Lắng nghe thay đổi auth state
@@ -40,8 +66,14 @@ export function useAuth() {
           ...prev,
           session,
           user: session?.user ?? null,
+          profile: session?.user ? prev.profile : null,
           isLoading: false,
         }));
+        
+        // Load profile nếu có user mới
+        if (session?.user) {
+          loadProfile(session.user.id);
+        }
       }
     );
 
@@ -112,7 +144,7 @@ export function useAuth() {
     
     try {
       await supabase.auth.signOut();
-      setState({ user: null, session: null, isLoading: false, error: null });
+      setState({ user: null, session: null, profile: null, isLoading: false, error: null });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Đăng xuất thất bại';
       setState(prev => ({ ...prev, error: message, isLoading: false }));
@@ -124,9 +156,17 @@ export function useAuth() {
     setState(prev => ({ ...prev, error: null }));
   };
 
+  // Update profile function
+  const updateProfile = async () => {
+    if (state.user) {
+      await loadProfile(state.user.id);
+    }
+  };
+
   return {
     user: state.user,
     session: state.session,
+    profile: state.profile,
     isAuthenticated: !!state.session,
     isLoading: state.isLoading,
     error: state.error,
@@ -134,6 +174,7 @@ export function useAuth() {
     signIn,
     signOut,
     clearError,
+    updateProfile,
   };
 }
 
@@ -145,29 +186,12 @@ export async function saveUserShop(
   accessToken: string,
   refreshToken: string,
   expiredAt: number,
-  merchantId?: number
+  merchantId?: number,
+  partnerAccountId?: string
 ) {
-  console.log('[saveUserShop] Starting...', { userId, shopId });
-  
-  // 1. Upsert vào bảng user_shops TRƯỚC (để RLS cho phép INSERT vào shops)
-  const { error: userShopError } = await supabase
-    .from('user_shops')
-    .upsert({
-      user_id: userId,
-      shop_id: shopId,
-      is_active: true,
-      updated_at: new Date().toISOString(),
-    }, {
-      onConflict: 'user_id,shop_id',
-    });
+  console.log('[saveUserShop] Starting...', { userId, shopId, partnerAccountId });
 
-  if (userShopError) {
-    console.error('[saveUserShop] UserShop error:', userShopError);
-    throw userShopError;
-  }
-  console.log('[saveUserShop] user_shops upserted successfully');
-
-  // 2. Upsert vào bảng shops (token được lưu trong bảng shops)
+  // 1. Upsert vào bảng shops (token được lưu trong bảng shops)
   const { error: shopError } = await supabase
     .from('shops')
     .upsert({
@@ -176,6 +200,7 @@ export async function saveUserShop(
       refresh_token: refreshToken,
       expired_at: expiredAt,
       merchant_id: merchantId,
+      partner_account_id: partnerAccountId,
       token_updated_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }, {
@@ -187,30 +212,76 @@ export async function saveUserShop(
     throw shopError;
   }
   console.log('[saveUserShop] shops upserted successfully');
+
+  // 2. Tạo shop member relationship
+  const { error: memberError } = await supabase
+    .from('shop_members')
+    .upsert({
+      user_id: userId,
+      shop_id: shopId,
+      role: 'admin', // User kết nối shop sẽ là admin của shop đó
+    }, {
+      onConflict: 'user_id,shop_id',
+    });
+
+  if (memberError) {
+    console.error('[saveUserShop] Shop member error:', memberError);
+    throw memberError;
+  }
+  console.log('[saveUserShop] shop_members upserted successfully');
 }
 
-// Lấy thông tin shop của user
+// Lấy thông tin shop của user thông qua shop_members
 export async function getUserShops(userId: string) {
-  const { data, error } = await supabase
-    .from('user_shops')
-    .select('id, shop_id, is_active, created_at, role')
-    .eq('user_id', userId)
-    .eq('is_active', true)
-    .order('created_at', { ascending: false });
+  try {
+    const { data, error } = await supabase
+      .from('shop_members')
+      .select(`
+        shop_id,
+        role,
+        shops (
+          shop_id,
+          shop_name,
+          region,
+          shop_logo
+        )
+      `)
+      .eq('user_id', userId);
 
-  if (error) {
+    if (error) {
+      console.error('[getUserShops] Error:', error);
+      return [];
+    }
+
+    // Transform data
+    return (data || []).map(item => {
+      const shop = item.shops as any;
+      return {
+        shop_id: item.shop_id,
+        shop_name: shop?.shop_name || `Shop ${item.shop_id}`,
+        region: shop?.region || 'VN',
+        shop_logo: shop?.shop_logo,
+        access_type: 'direct',
+        access_level: item.role,
+      };
+    });
+  } catch (error) {
     console.error('[getUserShops] Error:', error);
     return [];
   }
-
-  return data || [];
 }
 
-// Lấy profile user - tự động tạo nếu chưa có
+// Lấy profile user với role information - tự động tạo nếu chưa có
 export async function getUserProfile(userId: string) {
   const { data, error } = await supabase
     .from('profiles')
-    .select('*')
+    .select(`
+      *,
+      roles (
+        name,
+        display_name
+      )
+    `)
     .eq('id', userId)
     .single();
 
@@ -222,14 +293,28 @@ export async function getUserProfile(userId: string) {
       // Lấy thông tin user từ auth
       const { data: { user } } = await supabase.auth.getUser();
       
+      // Get default member role
+      const { data: memberRole } = await supabase
+        .from('roles')
+        .select('id')
+        .eq('name', 'member')
+        .single();
+      
       const { data: newProfile, error: insertError } = await supabase
         .from('profiles')
         .insert({
           id: userId,
           email: user?.email || '',
           full_name: user?.user_metadata?.full_name || '',
+          role_id: memberRole?.id,
         })
-        .select()
+        .select(`
+          *,
+          roles (
+            name,
+            display_name
+          )
+        `)
         .single();
 
       if (insertError) {
@@ -237,12 +322,22 @@ export async function getUserProfile(userId: string) {
         return null;
       }
 
-      return newProfile;
+      // Transform the data to include role_name and role_display_name
+      return {
+        ...newProfile,
+        role_name: newProfile.roles?.name || 'member',
+        role_display_name: newProfile.roles?.display_name || 'Member',
+      };
     }
     
     console.error('[getUserProfile] Error:', error);
     return null;
   }
 
-  return data;
+  // Transform the data to include role_name and role_display_name
+  return {
+    ...data,
+    role_name: data.roles?.name || 'member',
+    role_display_name: data.roles?.display_name || 'Member',
+  };
 }

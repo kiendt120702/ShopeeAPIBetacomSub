@@ -2,8 +2,10 @@
  * Auth Panel - Component hiển thị trong main content
  */
 
+import { useEffect } from 'react';
 import { useShopeeAuth } from '@/hooks/useShopeeAuth';
 import { SHOPEE_CONFIG } from '@/lib/shopee';
+import { useAuth } from '@/hooks/useAuth';
 
 const CALLBACK_URL =
   import.meta.env.VITE_SHOPEE_CALLBACK_URL || 'http://localhost:5173/auth/callback';
@@ -19,7 +21,21 @@ export default function AuthPanel() {
     login,
     logout,
     refresh,
+    partnerAccounts,
+    selectedPartnerAccountId,
+    loadPartnerAccounts,
+    setSelectedPartnerAccountId,
   } = useShopeeAuth();
+  
+  const { profile } = useAuth();
+  const isAdmin = profile?.role === 'admin' || profile?.role === 'super_admin';
+
+  // Load partner accounts khi admin
+  useEffect(() => {
+    if (isAdmin) {
+      loadPartnerAccounts();
+    }
+  }, [isAdmin, loadPartnerAccounts]);
 
   const formatExpiry = (expiredAt?: number) => {
     if (!expiredAt) return 'N/A';
@@ -116,8 +132,30 @@ export default function AuthPanel() {
         ) : (
           <div className="text-center py-4">
             <p className="text-gray-500 mb-4">Chưa có token. Vui lòng đăng nhập.</p>
+            
+            {/* Partner Account Selector - chỉ hiện cho admin */}
+            {isAdmin && partnerAccounts.length > 0 && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Chọn Partner Account:
+                </label>
+                <select
+                  value={selectedPartnerAccountId || ''}
+                  onChange={(e) => setSelectedPartnerAccountId(e.target.value || null)}
+                  className="w-full max-w-xs px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500"
+                >
+                  <option value="">-- Dùng mặc định (env) --</option>
+                  {partnerAccounts.map((pa) => (
+                    <option key={pa.id} value={pa.id}>
+                      {pa.name || `Partner ${pa.partner_id}`} (ID: {pa.partner_id})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            
             <button
-              onClick={() => login()}
+              onClick={() => login(CALLBACK_URL, selectedPartnerAccountId || undefined)}
               disabled={!isConfigured || isLoading}
               className="px-6 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:bg-gray-300"
             >

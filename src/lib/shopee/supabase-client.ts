@@ -10,12 +10,18 @@ export { isSupabaseConfigured };
 
 /**
  * Lấy URL xác thực OAuth từ backend
+ * @param redirectUri - URL callback sau khi authorize
+ * @param partnerAccountId - ID của partner account (optional, dùng default nếu không truyền)
  */
-export async function getAuthorizationUrl(redirectUri: string): Promise<string> {
-  console.log('[Shopee] Calling shopee-auth with redirect_uri:', redirectUri);
+export async function getAuthorizationUrl(redirectUri: string, partnerAccountId?: string): Promise<string> {
+  console.log('[Shopee] Calling shopee-auth with redirect_uri:', redirectUri, 'partner_account_id:', partnerAccountId);
   
   const { data, error } = await supabase.functions.invoke('shopee-auth', {
-    body: { action: 'get-auth-url', redirect_uri: redirectUri },
+    body: { 
+      action: 'get-auth-url', 
+      redirect_uri: redirectUri,
+      partner_account_id: partnerAccountId,
+    },
   });
 
   console.log('[Shopee] Response:', { data, error });
@@ -35,18 +41,21 @@ export async function getAuthorizationUrl(redirectUri: string): Promise<string> 
 
 /**
  * Đổi code lấy access token
+ * @param code - Authorization code từ callback
+ * @param shopId - Shop ID (optional)
+ * @param partnerAccountId - ID của partner account (optional)
  */
 export async function authenticateWithCode(
   code: string,
   shopId?: number,
-  mainAccountId?: number
+  partnerAccountId?: string
 ): Promise<AccessToken> {
   const { data, error } = await supabase.functions.invoke('shopee-auth', {
     body: {
       action: 'get-token',
       code,
       shop_id: shopId,
-      main_account_id: mainAccountId,
+      partner_account_id: partnerAccountId,
     },
   });
 

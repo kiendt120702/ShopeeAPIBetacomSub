@@ -23,6 +23,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 
 interface ScheduledItem {
   id: string;
@@ -52,6 +60,13 @@ export default function ScheduledPanel() {
   const [schedules, setSchedules] = useState<ScheduledItem[]>([]);
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [selectedSchedule, setSelectedSchedule] = useState<ScheduledItem | null>(null);
+  
+  // Edit dialog state
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingSchedule, setEditingSchedule] = useState<ScheduledItem | null>(null);
+  const [editDate, setEditDate] = useState('');
+  const [editTime, setEditTime] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleString('vi-VN', {
@@ -141,6 +156,54 @@ export default function ScheduledPanel() {
       toast({ title: 'Lỗi', description: (err as Error).message, variant: 'destructive' });
     } finally {
       setProcessing(false);
+    }
+  };
+
+  const handleEditSchedule = (schedule: ScheduledItem) => {
+    setEditingSchedule(schedule);
+    // Parse scheduled_at to date and time
+    const dt = new Date(schedule.scheduled_at);
+    setEditDate(dt.toISOString().split('T')[0]); // YYYY-MM-DD
+    setEditTime(dt.toTimeString().slice(0, 5)); // HH:MM
+    setEditDialogOpen(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingSchedule || !token?.shop_id || !editDate || !editTime) return;
+
+    setSaving(true);
+    try {
+      const newScheduledAt = new Date(`${editDate}T${editTime}:00`);
+      
+      const { data, error } = await supabase.functions.invoke('shopee-scheduler', {
+        body: { 
+          action: 'update', 
+          shop_id: token.shop_id, 
+          schedule_id: editingSchedule.id,
+          scheduled_at: newScheduledAt.toISOString(),
+        },
+      });
+
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Cập nhật thất bại');
+
+      toast({ title: 'Thành công', description: 'Đã cập nhật thời gian chạy' });
+      setEditDialogOpen(false);
+      setEditingSchedule(null);
+      
+      // Update local state
+      setSchedules(prev => prev.map(s => 
+        s.id === editingSchedule.id 
+          ? { ...s, scheduled_at: newScheduledAt.toISOString() }
+          : s
+      ));
+      if (selectedSchedule?.id === editingSchedule.id) {
+        setSelectedSchedule({ ...selectedSchedule, scheduled_at: newScheduledAt.toISOString() });
+      }
+    } catch (err) {
+      toast({ title: 'Lỗi', description: (err as Error).message, variant: 'destructive' });
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -298,6 +361,15 @@ export default function ScheduledPanel() {
                         {item.status === 'pending' && (
                           <div className="flex items-center justify-center gap-1">
                             <button
+                              onClick={(e) => { e.stopPropagation(); handleEditSchedule(item); }}
+                              className="p-1.5 hover:bg-blue-100 rounded-md text-blue-600"
+                              title="Chỉnh sửa"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                              </svg>
+                            </button>
+                            <button
                               onClick={(e) => { e.stopPropagation(); handleForceRun(item.id); }}
                               disabled={processing}
                               className="p-1.5 hover:bg-violet-100 rounded-md text-violet-600"
@@ -418,6 +490,16 @@ export default function ScheduledPanel() {
               {selectedSchedule.status === 'pending' && (
                 <div className="flex gap-2">
                   <Button 
+                    variant="outline"
+                    onClick={() => handleEditSchedule(selectedSchedule)}
+                    className="flex-1"
+                  >
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    Chỉnh sửa
+                  </Button>
+                  <Button 
                     onClick={() => handleForceRun(selectedSchedule.id)} 
                     disabled={processing}
                     className="flex-1 bg-violet-500 hover:bg-violet-600"
@@ -439,6 +521,53 @@ export default function ScheduledPanel() {
           </div>
         )}
       </div>
+
+      {/* Edit Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Chỉnh sửa thời gian chạy</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700">Ngày chạy</label>
+              <Input
+                type="date"
+                value={editDate}
+                onChange={(e) => setEditDate(e.target.value)}
+                className="w-full"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700">Giờ chạy</label>
+              <Input
+                type="time"
+                value={editTime}
+                onChange={(e) => setEditTime(e.target.value)}
+                className="w-full"
+              />
+            </div>
+            {editingSchedule && (
+              <div className="bg-slate-50 rounded-lg p-3 text-sm">
+                <p className="text-slate-500">Flash Sale đích:</p>
+                <p className="font-medium text-slate-700">{formatTimestamp(editingSchedule.target_start_time)}</p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
+              Hủy
+            </Button>
+            <Button 
+              onClick={handleSaveEdit} 
+              disabled={saving || !editDate || !editTime}
+              className="bg-violet-500 hover:bg-violet-600"
+            >
+              {saving ? 'Đang lưu...' : 'Lưu thay đổi'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

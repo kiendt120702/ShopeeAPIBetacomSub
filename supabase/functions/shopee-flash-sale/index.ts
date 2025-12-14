@@ -1,6 +1,7 @@
 /**
  * Supabase Edge Function: Shopee Flash Sale
  * Quản lý Shop Flash Sale với Auto-Refresh Token
+ * Hỗ trợ multi-partner: lấy credentials từ database
  */
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
@@ -12,12 +13,11 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Shopee API config
-const SHOPEE_PARTNER_ID = Number(Deno.env.get('SHOPEE_PARTNER_ID'));
-const SHOPEE_PARTNER_KEY = Deno.env.get('SHOPEE_PARTNER_KEY') || '';
+// Shopee API config (fallback)
+const DEFAULT_PARTNER_ID = Number(Deno.env.get('SHOPEE_PARTNER_ID'));
+const DEFAULT_PARTNER_KEY = Deno.env.get('SHOPEE_PARTNER_KEY') || '';
 const SHOPEE_BASE_URL = Deno.env.get('SHOPEE_BASE_URL') || 'https://partner.shopeemobile.com';
-const PROXY_URL = Deno.env.get('SHOPEE_PROXY_URL') || ''; // VPS Proxy URL
-const PROXY_URL = Deno.env.get('PROXY_URL') || ''; // VPS Proxy URL
+const PROXY_URL = Deno.env.get('SHOPEE_PROXY_URL') || Deno.env.get('PROXY_URL') || '';
 
 // Supabase config
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
@@ -26,11 +26,49 @@ const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 // Token buffer time (5 phút trước khi hết hạn sẽ refresh)
 const TOKEN_BUFFER_MS = 5 * 60 * 1000;
 
+// Interface cho partner credentials
+interface PartnerCredentials {
+  partnerId: number;
+  partnerKey: string;
+}
+
+/**
+ * Lấy partner credentials từ database hoặc fallback env
+ */
+async function getPartnerCredentials(
+  supabase: ReturnType<typeof createClient>,
+  shopId: number
+): Promise<PartnerCredentials> {
+  // Tìm partner từ shop
+  const { data, error } = await supabase
+    .from('shops')
+    .select('partner_account_id, partner_accounts(partner_id, partner_key)')
+    .eq('shop_id', shopId)
+    .single();
+
+  if (data?.partner_accounts && !error) {
+    const pa = data.partner_accounts as { partner_id: number; partner_key: string };
+    console.log('[PARTNER] Using partner from database:', pa.partner_id);
+    return {
+      partnerId: pa.partner_id,
+      partnerKey: pa.partner_key,
+    };
+  }
+
+  // Fallback: dùng env
+  console.log('[PARTNER] Using default partner from env:', DEFAULT_PARTNER_ID);
+  return {
+    partnerId: DEFAULT_PARTNER_ID,
+    partnerKey: DEFAULT_PARTNER_KEY,
+  };
+}
+
 /**
  * Tạo signature cho Shopee API
  */
 function createSignature(
   partnerId: number,
+  partnerKey: string,
   path: string,
   timestamp: number,
   accessToken = '',
@@ -40,7 +78,7 @@ function createSignature(
   if (accessToken) baseString += accessToken;
   if (shopId) baseString += shopId;
 
-  const hmac = createHmac('sha256', SHOPEE_PARTNER_KEY);
+  const hmac = createHmac('sha256', partnerKey);
   hmac.update(baseString);
   return hmac.digest('hex');
 }
@@ -62,19 +100,23 @@ async function fetchWithProxy(targetUrl: string, options: RequestInit): Promise<
 /**
  * Refresh access token từ Shopee
  */
-async function refreshAccessToken(refreshToken: string, shopId: number) {
+async function refreshAccessToken(
+  credentials: PartnerCredentials,
+  refreshToken: string,
+  shopId: number
+) {
   const timestamp = Math.floor(Date.now() / 1000);
   const path = '/api/v2/auth/access_token/get';
-  const sign = createSignature(SHOPEE_PARTNER_ID, path, timestamp);
+  const sign = createSignature(credentials.partnerId, credentials.partnerKey, path, timestamp);
 
-  const url = `${SHOPEE_BASE_URL}${path}?partner_id=${SHOPEE_PARTNER_ID}&timestamp=${timestamp}&sign=${sign}`;
+  const url = `${SHOPEE_BASE_URL}${path}?partner_id=${credentials.partnerId}&timestamp=${timestamp}&sign=${sign}`;
 
   const response = await fetchWithProxy(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       refresh_token: refreshToken,
-      partner_id: SHOPEE_PARTNER_ID,
+      partner_id: credentials.partnerId,
       shop_id: shopId,
     }),
   });
@@ -91,14 +133,14 @@ async function saveToken(
   shopId: number,
   token: Record<string, unknown>
 ) {
-  const { error } = await supabase.from('shopee_tokens').upsert(
+  const { error } = await supabase.from('shops').upsert(
     {
       shop_id: shopId,
       access_token: token.access_token,
       refresh_token: token.refresh_token,
       expire_in: token.expire_in,
       expired_at: Date.now() + (token.expire_in as number) * 1000,
-      updated_at: new Date().toISOString(),
+      token_updated_at: new Date().toISOString(),
     },
     { onConflict: 'shop_id' }
   );
@@ -133,68 +175,14 @@ async function getTokenWithAutoRefresh(
 
   let data = shopData;
 
-  // 2. Fallback: Tìm trong bảng shopee_tokens (cũ)
+  // Token not found after schema consolidation
   if (shopError || !shopData?.access_token) {
-    const { data: tokenData, error: tokenError } = await supabase
-      .from('shopee_tokens')
-      .select('*')
-      .eq('shop_id', shopId)
-      .single();
-
-    console.log(`[TOKEN] shopee_tokens query:`, { 
-      found: !!tokenData, 
-      error: tokenError?.message 
-    });
-
-    if (tokenError || !tokenData) {
-      throw new Error('Token not found. Please authenticate first.');
-    }
-    data = tokenData;
+    throw new Error('Token not found. Please authenticate first.');
   }
 
   // Kiểm tra token có sắp hết hạn không (buffer 5 phút)
   const now = Date.now();
   const isExpiringSoon = data.expired_at && (data.expired_at - now) < TOKEN_BUFFER_MS;
-
-  if (isExpiringSoon) {
-    console.log('[AUTO-REFRESH] Token expiring soon, refreshing...');
-    
-    try {
-      const newToken = await refreshAccessToken(data.refresh_token, shopId);
-
-      if (newToken.error) {
-        console.error('[AUTO-REFRESH] Failed:', newToken.error, newToken.message);
-        // Nếu refresh thất bại, vẫn thử dùng token cũ
-        return data;
-      }
-
-      // Lưu token mới vào cả 2 bảng
-      await saveToken(supabase, shopId, newToken);
-      
-      // Cập nhật bảng shops
-      await supabase.from('shops').upsert({
-        shop_id: shopId,
-        access_token: newToken.access_token,
-        refresh_token: newToken.refresh_token,
-        expired_at: Date.now() + newToken.expire_in * 1000,
-        token_updated_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'shop_id' });
-
-      console.log('[AUTO-REFRESH] Token refreshed successfully');
-      
-      return {
-        ...data,
-        access_token: newToken.access_token,
-        refresh_token: newToken.refresh_token,
-        expired_at: Date.now() + newToken.expire_in * 1000,
-      };
-    } catch (refreshError) {
-      console.error('[AUTO-REFRESH] Error:', refreshError);
-      // Fallback to old token
-      return data;
-    }
-  }
 
   return data;
 }
@@ -204,6 +192,7 @@ async function getTokenWithAutoRefresh(
  */
 async function callShopeeAPIWithRetry(
   supabase: ReturnType<typeof createClient>,
+  credentials: PartnerCredentials,
   path: string,
   method: 'GET' | 'POST',
   shopId: number,
@@ -213,10 +202,10 @@ async function callShopeeAPIWithRetry(
 ): Promise<unknown> {
   const makeRequest = async (accessToken: string) => {
     const timestamp = Math.floor(Date.now() / 1000);
-    const sign = createSignature(SHOPEE_PARTNER_ID, path, timestamp, accessToken, shopId);
+    const sign = createSignature(credentials.partnerId, credentials.partnerKey, path, timestamp, accessToken, shopId);
 
     const params = new URLSearchParams({
-      partner_id: SHOPEE_PARTNER_ID.toString(),
+      partner_id: credentials.partnerId.toString(),
       timestamp: timestamp.toString(),
       access_token: accessToken,
       shop_id: shopId.toString(),
@@ -254,11 +243,20 @@ async function callShopeeAPIWithRetry(
   if (result.error === 'error_auth' || result.message?.includes('Invalid access_token')) {
     console.log('[AUTO-RETRY] Invalid token detected, refreshing...');
 
-    const newToken = await refreshAccessToken(token.refresh_token, shopId);
+    const newToken = await refreshAccessToken(credentials, token.refresh_token, shopId);
 
     if (!newToken.error) {
       // Lưu token mới
       await saveToken(supabase, shopId, newToken);
+      
+      // Cập nhật bảng shops
+      await supabase.from('shops').upsert({
+        shop_id: shopId,
+        access_token: newToken.access_token,
+        refresh_token: newToken.refresh_token,
+        expired_at: Date.now() + newToken.expire_in * 1000,
+        token_updated_at: new Date().toISOString(),
+      }, { onConflict: 'shop_id' });
       
       // Gọi lại API với token mới
       result = await makeRequest(newToken.access_token);
@@ -288,6 +286,9 @@ serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
     
+    // Lấy partner credentials từ database
+    const credentials = await getPartnerCredentials(supabase, shop_id);
+    
     // Lấy token với auto-refresh
     const token = await getTokenWithAutoRefresh(supabase, shop_id);
 
@@ -298,6 +299,7 @@ serve(async (req) => {
         const now = Math.floor(Date.now() / 1000);
         result = await callShopeeAPIWithRetry(
           supabase,
+          credentials,
           '/api/v2/shop_flash_sale/get_time_slot_id',
           'GET',
           shop_id,
@@ -314,6 +316,7 @@ serve(async (req) => {
       case 'create-flash-sale': {
         result = await callShopeeAPIWithRetry(
           supabase,
+          credentials,
           '/api/v2/shop_flash_sale/create_shop_flash_sale',
           'POST',
           shop_id,
@@ -326,6 +329,7 @@ serve(async (req) => {
       case 'get-flash-sale': {
         result = await callShopeeAPIWithRetry(
           supabase,
+          credentials,
           '/api/v2/shop_flash_sale/get_shop_flash_sale',
           'GET',
           shop_id,
@@ -353,6 +357,7 @@ serve(async (req) => {
         
         result = await callShopeeAPIWithRetry(
           supabase,
+          credentials,
           '/api/v2/shop_flash_sale/get_shop_flash_sale_list',
           'GET',
           shop_id,
@@ -366,6 +371,7 @@ serve(async (req) => {
       case 'update-flash-sale': {
         result = await callShopeeAPIWithRetry(
           supabase,
+          credentials,
           '/api/v2/shop_flash_sale/update_shop_flash_sale',
           'POST',
           shop_id,
@@ -381,6 +387,7 @@ serve(async (req) => {
       case 'delete-flash-sale': {
         result = await callShopeeAPIWithRetry(
           supabase,
+          credentials,
           '/api/v2/shop_flash_sale/delete_shop_flash_sale',
           'POST',
           shop_id,
@@ -393,6 +400,7 @@ serve(async (req) => {
       case 'add-items': {
         result = await callShopeeAPIWithRetry(
           supabase,
+          credentials,
           '/api/v2/shop_flash_sale/add_shop_flash_sale_items',
           'POST',
           shop_id,
@@ -408,6 +416,7 @@ serve(async (req) => {
       case 'get-items': {
         result = await callShopeeAPIWithRetry(
           supabase,
+          credentials,
           '/api/v2/shop_flash_sale/get_shop_flash_sale_items',
           'GET',
           shop_id,
@@ -425,6 +434,7 @@ serve(async (req) => {
       case 'update-items': {
         result = await callShopeeAPIWithRetry(
           supabase,
+          credentials,
           '/api/v2/shop_flash_sale/update_shop_flash_sale_items',
           'POST',
           shop_id,
@@ -440,6 +450,7 @@ serve(async (req) => {
       case 'delete-items': {
         result = await callShopeeAPIWithRetry(
           supabase,
+          credentials,
           '/api/v2/shop_flash_sale/delete_shop_flash_sale_items',
           'POST',
           shop_id,
@@ -455,6 +466,7 @@ serve(async (req) => {
       case 'get-criteria': {
         result = await callShopeeAPIWithRetry(
           supabase,
+          credentials,
           '/api/v2/shop_flash_sale/get_item_criteria',
           'GET',
           shop_id,
