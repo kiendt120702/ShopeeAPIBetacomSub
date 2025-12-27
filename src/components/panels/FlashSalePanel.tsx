@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { useShopeeAuth } from '@/hooks/useShopeeAuth';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Spinner, LoadingState } from '@/components/ui/spinner';
 import {
   Table,
   TableBody,
@@ -125,6 +126,7 @@ const FlashSalePanel = forwardRef<FlashSalePanelRef>((_, ref) => {
   const [copying, setCopying] = useState(false);
   const [copyMode, setCopyMode] = useState<'now' | 'schedule'>('now');
   const [minutesBefore, setMinutesBefore] = useState(10);
+  const [scheduledTimeslots, setScheduledTimeslots] = useState<Set<number>>(new Set());
 
   // Sync progress state
   const [showSyncProgress, setShowSyncProgress] = useState(false);
@@ -317,11 +319,30 @@ const FlashSalePanel = forwardRef<FlashSalePanelRef>((_, ref) => {
     setLoadingTimeSlots(true);
     try {
       const now = Math.floor(Date.now() / 1000) + 60;
-      const { data, error } = await supabase.functions.invoke('shopee-flash-sale', {
-        body: { action: 'get-time-slots', shop_id: token.shop_id, start_time: now, end_time: now + 30 * 24 * 60 * 60 },
-      });
-      if (error) throw error;
-      setTimeSlots(data?.response || []);
+      
+      // Fetch timeslots và scheduled flash sales song song
+      const [timeSlotsRes, scheduledRes] = await Promise.all([
+        supabase.functions.invoke('shopee-flash-sale', {
+          body: { action: 'get-time-slots', shop_id: token.shop_id, start_time: now, end_time: now + 30 * 24 * 60 * 60 },
+        }),
+        supabase
+          .from('scheduled_flash_sales')
+          .select('target_timeslot_id')
+          .eq('shop_id', token.shop_id)
+          .eq('status', 'pending')
+      ]);
+      
+      if (timeSlotsRes.error) throw timeSlotsRes.error;
+      setTimeSlots(timeSlotsRes.data?.response || []);
+      
+      // Tạo Set các timeslot đã có lịch hẹn pending
+      const scheduledSet = new Set<number>();
+      if (scheduledRes.data) {
+        scheduledRes.data.forEach((s: { target_timeslot_id: number }) => {
+          scheduledSet.add(s.target_timeslot_id);
+        });
+      }
+      setScheduledTimeslots(scheduledSet);
     } catch (err) {
       toast({ title: 'Lỗi', description: (err as Error).message, variant: 'destructive' });
     } finally {
@@ -427,7 +448,12 @@ const FlashSalePanel = forwardRef<FlashSalePanelRef>((_, ref) => {
       try {
         const schedules = selectedTimeSlots.map(timeslotId => {
           const slot = timeSlots.find(ts => ts.timeslot_id === timeslotId);
-          return { timeslot_id: timeslotId, start_time: slot?.start_time || 0, items_data: itemsToAdd };
+          return { 
+            timeslot_id: timeslotId, 
+            start_time: slot?.start_time || 0, 
+            end_time: slot?.end_time || 0,
+            items_data: itemsToAdd 
+          };
         });
         const { data, error } = await supabase.functions.invoke('shopee-scheduler', {
           body: { action: 'schedule', shop_id: token.shop_id, source_flash_sale_id: selectedSale?.flash_sale_id, schedules, minutes_before: minutesBefore },
@@ -540,15 +566,7 @@ const FlashSalePanel = forwardRef<FlashSalePanelRef>((_, ref) => {
             <p className="text-gray-500">Vui lòng kết nối Shopee để tiếp tục</p>
           </div>
         ) : loading ? (
-          <div className="h-full flex items-center justify-center">
-            <div className="text-center">
-              <svg className="w-8 h-8 animate-spin text-orange-500 mx-auto mb-2" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              <p className="text-gray-400">Đang tải từ database...</p>
-            </div>
-          </div>
+          <LoadingState text="Đang tải từ database..." color="orange" />
         ) : paginatedSales.length === 0 ? (
           <div className="h-full flex items-center justify-center">
             <p className="text-gray-400">Chưa có khung giờ Flash Sale</p>
@@ -626,10 +644,7 @@ const FlashSalePanel = forwardRef<FlashSalePanelRef>((_, ref) => {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {syncProgress.status === 'syncing' && (
-                <svg className="w-5 h-5 animate-spin text-orange-500" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
+                <Spinner size="sm" color="orange" />
               )}
               {syncProgress.status === 'done' && (
                 <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -745,10 +760,7 @@ const FlashSalePanel = forwardRef<FlashSalePanelRef>((_, ref) => {
                 <h4 className="font-semibold text-slate-700 mb-3">Sản phẩm ({itemsInfo.length})</h4>
                 {loadingItems ? (
                   <div className="flex items-center justify-center py-8">
-                    <svg className="w-6 h-6 animate-spin text-orange-500" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
+                    <Spinner size="md" color="orange" />
                   </div>
                 ) : itemsInfo.length === 0 ? (
                   <p className="text-center text-slate-400 py-4">Không có sản phẩm</p>
@@ -858,12 +870,13 @@ const FlashSalePanel = forwardRef<FlashSalePanelRef>((_, ref) => {
 
             <div>
               <div className="flex items-center justify-between mb-2">
-                <h4 className="font-medium text-slate-700">Chọn Time Slots ({selectedTimeSlots.length}/{timeSlots.length})</h4>
+                <h4 className="font-medium text-slate-700">Chọn Time Slots ({selectedTimeSlots.length}/{timeSlots.filter(ts => !scheduledTimeslots.has(ts.timeslot_id)).length})</h4>
                 <Button variant="outline" size="sm" onClick={() => {
-                  if (selectedTimeSlots.length === timeSlots.length) setSelectedTimeSlots([]);
-                  else setSelectedTimeSlots(timeSlots.map(ts => ts.timeslot_id));
+                  const availableSlots = timeSlots.filter(ts => !scheduledTimeslots.has(ts.timeslot_id));
+                  if (selectedTimeSlots.length === availableSlots.length) setSelectedTimeSlots([]);
+                  else setSelectedTimeSlots(availableSlots.map(ts => ts.timeslot_id));
                 }}>
-                  {selectedTimeSlots.length === timeSlots.length ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
+                  {selectedTimeSlots.length === timeSlots.filter(ts => !scheduledTimeslots.has(ts.timeslot_id)).length ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
                 </Button>
               </div>
               
@@ -877,19 +890,24 @@ const FlashSalePanel = forwardRef<FlashSalePanelRef>((_, ref) => {
                     const dayStr = startDate.toLocaleDateString('vi-VN', { weekday: 'short', day: '2-digit', month: '2-digit' });
                     const startTimeStr = startDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
                     const endTimeStr = endDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                    const isScheduled = scheduledTimeslots.has(slot.timeslot_id);
                     
                     return (
                       <label 
                         key={slot.timeslot_id} 
-                        className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                          selectedTimeSlots.includes(slot.timeslot_id) 
-                            ? 'border-orange-500 bg-orange-50' 
-                            : 'border-slate-200 hover:bg-slate-50'
+                        className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
+                          isScheduled 
+                            ? 'border-violet-300 bg-violet-50 cursor-not-allowed opacity-70'
+                            : selectedTimeSlots.includes(slot.timeslot_id) 
+                              ? 'border-orange-500 bg-orange-50 cursor-pointer' 
+                              : 'border-slate-200 hover:bg-slate-50 cursor-pointer'
                         }`}
                       >
                         <Checkbox 
                           checked={selectedTimeSlots.includes(slot.timeslot_id)} 
+                          disabled={isScheduled}
                           onCheckedChange={() => {
+                            if (isScheduled) return;
                             setSelectedTimeSlots(prev => 
                               prev.includes(slot.timeslot_id) 
                                 ? prev.filter(id => id !== slot.timeslot_id) 
@@ -899,7 +917,14 @@ const FlashSalePanel = forwardRef<FlashSalePanelRef>((_, ref) => {
                         />
                         <div className="flex-1 flex items-center justify-between">
                           <span className="font-medium text-sm text-slate-700">{dayStr}</span>
-                          <span className="text-sm text-slate-500">{startTimeStr} - {endTimeStr}</span>
+                          <div className="flex items-center gap-2">
+                            {isScheduled && (
+                              <span className="text-xs px-2 py-0.5 bg-violet-100 text-violet-600 rounded-full font-medium">
+                                ⏰ Đã hẹn giờ
+                              </span>
+                            )}
+                            <span className="text-sm text-slate-500">{startTimeStr} - {endTimeStr}</span>
+                          </div>
                         </div>
                       </label>
                     );

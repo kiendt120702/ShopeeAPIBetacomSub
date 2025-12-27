@@ -24,6 +24,7 @@ const App = () => (
           <Route path="/ads/budget" element={<Index />} />
           <Route path="/profile" element={<Index />} />
           <Route path="/profile/users" element={<Index />} />
+          <Route path="/profile/shops" element={<Index />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
           <Route path="*" element={<NotFound />} />
         </Routes>

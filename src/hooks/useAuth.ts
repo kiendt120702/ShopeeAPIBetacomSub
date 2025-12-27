@@ -11,6 +11,7 @@ interface Profile {
   id: string;
   email: string;
   full_name: string | null;
+  avatar_url: string | null;
   role_id: string;
   role_name: string; // From roles table join
   role_display_name: string; // From roles table join
@@ -346,6 +347,7 @@ export async function getUserProfile(userId: string) {
       id: profileWithRole.id,
       email: profileWithRole.email,
       full_name: profileWithRole.full_name,
+      avatar_url: profileWithRole.avatar_url,
       role_id: profileWithRole.role_id,
       created_at: profileWithRole.created_at,
       updated_at: profileWithRole.updated_at,

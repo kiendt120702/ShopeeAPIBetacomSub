@@ -321,7 +321,7 @@ serve(async (req) => {
       // Tạo lịch hẹn mới
       case 'schedule': {
         const { source_flash_sale_id, schedules, minutes_before = 10 } = params;
-        // schedules: [{ timeslot_id, start_time, items_data }]
+        // schedules: [{ timeslot_id, start_time, end_time, items_data }]
         // minutes_before: số phút trước khi chạy (mặc định 10)
         
         if (!shop_id || !source_flash_sale_id || !schedules?.length) {
@@ -341,6 +341,7 @@ serve(async (req) => {
             source_flash_sale_id,
             target_timeslot_id: schedule.timeslot_id,
             target_start_time: schedule.start_time,
+            target_end_time: schedule.end_time || null,
             scheduled_at: scheduledAt.toISOString(),
             items_data: schedule.items_data,
             status: 'pending',

@@ -14,12 +14,13 @@ import AdsPanel from '@/components/panels/AdsPanel';
 import UserProfilePanel from '@/components/panels/UserProfilePanel';
 import { UserProfileInfo } from '@/components/profile/UserProfileInfo';
 import { UserManagementPanel } from '@/components/profile/UserManagementPanel';
+import { ShopManagementPanel } from '@/components/profile/ShopManagementPanel';
 
 import AuthPage from '@/pages/Auth';
 import { cn } from '@/lib/utils';
 import { ShopConnectionDialog } from '@/components/profile/ShopConnectionDialog';
 
-type MenuId = 'dashboard' | 'flash-sale' | 'flash-sale-list' | 'flash-sale-schedule' | 'ads' | 'ads-budget' | 'ads-manage' | 'profile' | 'profile-info' | 'profile-users';
+type MenuId = 'dashboard' | 'flash-sale' | 'flash-sale-list' | 'flash-sale-schedule' | 'ads' | 'ads-budget' | 'ads-manage' | 'profile' | 'profile-info' | 'profile-users' | 'profile-shops';
 
 interface MenuItem {
   id: MenuId;
@@ -84,6 +85,12 @@ const menuItems: MenuItem[] = [
         path: '/profile/users',
         label: 'Quản lý User',
         icon: <UsersIcon />,
+      },
+      {
+        id: 'profile-shops',
+        path: '/profile/shops',
+        label: 'Quản lý Shop',
+        icon: <ShopIcon />,
       },
     ]
   },
@@ -151,6 +158,14 @@ function UsersIcon() {
   return (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+    </svg>
+  );
+}
+
+function ShopIcon() {
+  return (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
     </svg>
   );
 }
@@ -663,6 +678,14 @@ const Index = () => {
       );
     }
     
+    if (activeMenu === 'profile-shops') {
+      return (
+        <div className="p-6 max-w-6xl mx-auto">
+          <ShopManagementPanel />
+        </div>
+      );
+    }
+    
     // Các trang khác cần kết nối shop
     if (!isShopConnected) {
       return <ConnectShopBanner onConnect={handleConnectShopee} error={shopeeError} isLoading={connectingShopee} canConnect={canManageShops} />;
@@ -855,10 +878,18 @@ const Index = () => {
                 onClick={() => setShowUserMenu(!showUserMenu)}
                 className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100 rounded-full px-3 py-1.5 transition-colors"
               >
-                <div className="w-6 h-6 bg-orange-500 rounded-full flex items-center justify-center text-white text-xs font-bold">
-                  {user?.email?.charAt(0).toUpperCase()}
+                <div className="w-7 h-7 rounded-full flex items-center justify-center overflow-hidden bg-orange-500">
+                  {profile?.avatar_url ? (
+                    <img src={profile.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-white text-xs font-bold">
+                      {(profile?.full_name || user?.email)?.charAt(0).toUpperCase()}
+                    </span>
+                  )}
                 </div>
-                <span className="text-sm text-slate-600 max-w-[120px] truncate">{user?.email}</span>
+                <span className="text-sm text-slate-600 max-w-[120px] truncate">
+                  {profile?.full_name || user?.email}
+                </span>
                 <svg className={cn("w-4 h-4 text-slate-400 transition-transform", showUserMenu && "rotate-180")} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>

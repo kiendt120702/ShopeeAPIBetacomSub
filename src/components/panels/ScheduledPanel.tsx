@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { useShopeeAuth } from '@/hooks/useShopeeAuth';
+import { LoadingState } from '@/components/ui/spinner';
 import {
   Table,
   TableBody,
@@ -38,6 +39,7 @@ interface ScheduledItem {
   source_flash_sale_id: number;
   target_timeslot_id: number;
   target_start_time: number;
+  target_end_time?: number;
   scheduled_at: string;
   status: 'pending' | 'running' | 'completed' | 'failed';
   result_flash_sale_id?: number;
@@ -54,12 +56,11 @@ const STATUS_MAP: Record<string, { label: string; color: string; icon: string }>
 
 export default function ScheduledPanel() {
   const { toast } = useToast();
-  const { token, isAuthenticated } = useShopeeAuth();
+  const { token, isAuthenticated, isLoading: authLoading } = useShopeeAuth();
   const [loading, setLoading] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [schedules, setSchedules] = useState<ScheduledItem[]>([]);
   const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [selectedSchedule, setSelectedSchedule] = useState<ScheduledItem | null>(null);
   
   // Edit dialog state
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -76,10 +77,25 @@ export default function ScheduledPanel() {
   };
 
   const formatTimestamp = (ts: number) => {
-    return new Date(ts * 1000).toLocaleString('vi-VN', {
+    const date = new Date(ts * 1000);
+    return date.toLocaleString('vi-VN', {
       day: '2-digit', month: '2-digit',
       hour: '2-digit', minute: '2-digit',
     });
+  };
+
+  // Format khung giờ Flash Sale (start_time -> end_time)
+  const formatTimeSlot = (startTs: number, endTs?: number) => {
+    const startDate = new Date(startTs * 1000);
+    // Nếu có end_time thì dùng, không thì mặc định +3 giờ
+    const endDate = endTs ? new Date(endTs * 1000) : new Date((startTs + 3 * 60 * 60) * 1000);
+    
+    const startTime = startDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    const endTime = endDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    const dateStr = `${String(startDate.getDate()).padStart(2, '0')}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${startDate.getFullYear()}`;
+    
+    // Format: "15:00 27-12-2025 - 17:00"
+    return `${startTime} ${dateStr} - ${endTime}`;
   };
 
   const fetchSchedules = async (showLoading = true) => {
@@ -115,7 +131,6 @@ export default function ScheduledPanel() {
       if (error) throw error;
       toast({ title: 'Thành công', description: 'Đã hủy lịch hẹn' });
       setSchedules(prev => prev.filter(s => s.id !== id));
-      if (selectedSchedule?.id === id) setSelectedSchedule(null);
     } catch (err) {
       toast({ title: 'Lỗi', description: (err as Error).message, variant: 'destructive' });
     }
@@ -199,9 +214,6 @@ export default function ScheduledPanel() {
           ? { ...s, scheduled_at: newScheduledAt.toISOString() }
           : s
       ));
-      if (selectedSchedule?.id === editingSchedule.id) {
-        setSelectedSchedule({ ...selectedSchedule, scheduled_at: newScheduledAt.toISOString() });
-      }
     } catch (err) {
       toast({ title: 'Lỗi', description: (err as Error).message, variant: 'destructive' });
     } finally {
@@ -278,7 +290,7 @@ export default function ScheduledPanel() {
 
             <Button 
               variant="outline"
-              onClick={fetchSchedules} 
+              onClick={() => fetchSchedules()} 
               disabled={loading}
             >
               {loading ? (
@@ -304,11 +316,13 @@ export default function ScheduledPanel() {
         </div>
       </div>
 
-      {/* Main Content - Split View */}
-      <div className="flex-1 flex overflow-hidden">
+      {/* Main Content */}
+      <div className="flex-1 overflow-hidden">
         {/* Table */}
-        <div className={`${selectedSchedule ? 'w-1/2' : 'w-full'} overflow-auto border-r border-slate-200 bg-white`}>
-          {!isAuthenticated ? (
+        <div className="h-full overflow-auto bg-white">
+          {authLoading || loading ? (
+            <LoadingState />
+          ) : !isAuthenticated ? (
             <div className="h-full flex items-center justify-center">
               <p className="text-slate-500">Vui lòng kết nối Shopee để tiếp tục</p>
             </div>
@@ -328,28 +342,25 @@ export default function ScheduledPanel() {
             <Table>
               <TableHeader className="sticky top-0 bg-slate-50 z-10">
                 <TableRow>
-                  <TableHead className="w-[200px]">Flash Sale đích</TableHead>
+                  <TableHead className="w-[220px]">Khung giờ</TableHead>
                   <TableHead className="text-center">Trạng thái</TableHead>
                   <TableHead className="text-center">Thời gian chạy</TableHead>
-                  <TableHead className="text-center w-[120px]">Thao tác</TableHead>
+                  <TableHead className="text-center w-[200px]">Thao tác</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredSchedules.map((item) => {
-                  const isSelected = selectedSchedule?.id === item.id;
                   const statusInfo = STATUS_MAP[item.status];
                   
                   return (
                     <TableRow 
                       key={item.id}
-                      onClick={() => setSelectedSchedule(item)}
-                      className={`cursor-pointer transition-colors ${isSelected ? 'bg-violet-50' : 'hover:bg-slate-50'}`}
+                      className="hover:bg-slate-50"
                     >
                       <TableCell>
-                        <div className="space-y-1">
-                          <p className="font-medium text-slate-800">{formatTimestamp(item.target_start_time)}</p>
-                          <p className="text-xs text-slate-400">#{item.id.slice(0, 8)}</p>
-                        </div>
+                        <p className="font-medium text-slate-800">
+                          {formatTimeSlot(item.target_start_time, item.target_end_time)}
+                        </p>
                       </TableCell>
                       <TableCell className="text-center">
                         <span className={`text-xs px-2 py-1 rounded-full font-medium ${statusInfo?.color}`}>
@@ -363,32 +374,35 @@ export default function ScheduledPanel() {
                         {item.status === 'pending' && (
                           <div className="flex items-center justify-center gap-1">
                             <button
-                              onClick={(e) => { e.stopPropagation(); handleEditSchedule(item); }}
-                              className="p-1.5 hover:bg-blue-100 rounded-md text-blue-600"
+                              onClick={() => handleEditSchedule(item)}
+                              className="px-2 py-1 hover:bg-blue-100 rounded-md text-blue-600 text-xs font-medium flex items-center gap-1"
                               title="Chỉnh sửa"
                             >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                               </svg>
+                              Sửa
                             </button>
                             <button
-                              onClick={(e) => { e.stopPropagation(); handleForceRun(item.id); }}
+                              onClick={() => handleForceRun(item.id)}
                               disabled={processing}
-                              className="p-1.5 hover:bg-violet-100 rounded-md text-violet-600"
+                              className="px-2 py-1 hover:bg-violet-100 rounded-md text-violet-600 text-xs font-medium flex items-center gap-1"
                               title="Chạy ngay"
                             >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                               </svg>
+                              Chạy
                             </button>
                             <button
-                              onClick={(e) => { e.stopPropagation(); handleCancel(item.id); }}
-                              className="p-1.5 hover:bg-red-100 rounded-md text-red-500"
+                              onClick={() => handleCancel(item.id)}
+                              className="px-2 py-1 hover:bg-red-100 rounded-md text-red-500 text-xs font-medium flex items-center gap-1"
                               title="Hủy"
                             >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                               </svg>
+                              Hủy
                             </button>
                           </div>
                         )}
@@ -400,128 +414,6 @@ export default function ScheduledPanel() {
             </Table>
           )}
         </div>
-
-        {/* Detail Panel */}
-        {selectedSchedule && (
-          <div className="w-1/2 overflow-auto bg-white p-6">
-            <div className="space-y-6">
-              {/* Header */}
-              <div className="bg-gradient-to-r from-violet-500 to-purple-500 rounded-xl p-5 text-white">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-violet-100 text-xs">Lịch hẹn</p>
-                    <h3 className="text-xl font-bold">#{selectedSchedule.id.slice(0, 8)}</h3>
-                    <p className="text-violet-100 text-sm mt-1">
-                      Flash Sale: {formatTimestamp(selectedSchedule.target_start_time)}
-                    </p>
-                  </div>
-                  <button onClick={() => setSelectedSchedule(null)} className="p-1 hover:bg-white/20 rounded">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-                <div className="flex gap-2 mt-3">
-                  <span className="bg-white/20 px-2 py-0.5 rounded text-xs">
-                    {STATUS_MAP[selectedSchedule.status]?.icon} {STATUS_MAP[selectedSchedule.status]?.label}
-                  </span>
-                </div>
-              </div>
-
-              {/* Info Grid */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-slate-50 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                    <span className="text-xs text-slate-500">Flash Sale đích</span>
-                  </div>
-                  <p className="font-semibold text-slate-700">{formatTimestamp(selectedSchedule.target_start_time)}</p>
-                </div>
-                <div className="bg-slate-50 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <span className="text-xs text-slate-500">Thời gian chạy</span>
-                  </div>
-                  <p className="font-semibold text-violet-600">{formatDate(selectedSchedule.scheduled_at)}</p>
-                </div>
-                <div className="bg-slate-50 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    <span className="text-xs text-slate-500">Ngày tạo</span>
-                  </div>
-                  <p className="font-semibold text-slate-700">{formatDate(selectedSchedule.created_at)}</p>
-                </div>
-                <div className="bg-slate-50 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <span className="text-xs text-slate-500">Source Flash Sale</span>
-                  </div>
-                  <p className="font-semibold text-slate-700">{selectedSchedule.source_flash_sale_id}</p>
-                </div>
-              </div>
-
-              {/* Result Message */}
-              {selectedSchedule.result_message && (
-                <div className={`p-4 rounded-lg ${
-                  selectedSchedule.status === 'completed' 
-                    ? 'bg-green-50 border border-green-200' 
-                    : 'bg-red-50 border border-red-200'
-                }`}>
-                  <p className={`text-sm font-medium ${
-                    selectedSchedule.status === 'completed' ? 'text-green-700' : 'text-red-700'
-                  }`}>
-                    {selectedSchedule.result_message}
-                  </p>
-                  {selectedSchedule.result_flash_sale_id && (
-                    <p className="text-xs text-green-600 mt-1">
-                      Flash Sale ID: {selectedSchedule.result_flash_sale_id}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* Actions */}
-              {selectedSchedule.status === 'pending' && (
-                <div className="flex gap-2">
-                  <Button 
-                    variant="outline"
-                    onClick={() => handleEditSchedule(selectedSchedule)}
-                    className="flex-1"
-                  >
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                    </svg>
-                    Chỉnh sửa
-                  </Button>
-                  <Button 
-                    onClick={() => handleForceRun(selectedSchedule.id)} 
-                    disabled={processing}
-                    className="flex-1 bg-violet-500 hover:bg-violet-600"
-                  >
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                    </svg>
-                    Chạy ngay
-                  </Button>
-                  <Button 
-                    variant="destructive" 
-                    onClick={() => handleCancel(selectedSchedule.id)}
-                  >
-                    Hủy lịch
-                  </Button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Edit Dialog */}

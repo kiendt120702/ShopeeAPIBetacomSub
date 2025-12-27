@@ -118,10 +118,8 @@ export default function AdsPanel() {
       setCampaigns(withInfo);
       
       // Lưu vào database
-      const { data: { user } } = await supabase.auth.getUser();
       const cacheData = withInfo.map(c => ({
         shop_id: token.shop_id,
-        user_id: user?.id,
         campaign_id: c.campaign_id,
         ad_type: c.ad_type,
         name: c.name || null,
