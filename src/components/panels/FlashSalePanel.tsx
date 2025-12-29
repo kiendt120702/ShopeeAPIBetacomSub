@@ -167,7 +167,19 @@ const FlashSalePanel = forwardRef<FlashSalePanelRef>((_, ref) => {
         .eq('shop_id', token.shop_id)
         .order('type', { ascending: true });
 
-      if (error) throw error;
+      if (error) {
+        // Check if it's a permission error
+        if (error.code === '22P02' || error.message?.includes('uuid')) {
+          console.error('Permission error - user may not have access to this shop');
+          toast({
+            title: 'Lỗi quyền truy cập',
+            description: 'Bạn không có quyền truy cập shop này. Vui lòng đăng xuất và đăng nhập lại.',
+            variant: 'destructive',
+          });
+          return;
+        }
+        throw error;
+      }
       
       // Sort by type priority: Đang chạy > Sắp tới > Kết thúc
       const sorted = (data || []).sort((a, b) => 
