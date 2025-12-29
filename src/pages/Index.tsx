@@ -5,7 +5,7 @@
 
 import { useState, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuthContext } from '@/components/auth/AuthProvider';
 import { useShopeeAuth } from '@/hooks/useShopeeAuth';
 import FlashSaleManagerPanel from '@/components/panels/FlashSaleManagerPanel';
 import FlashSalePanel from '@/components/panels/FlashSalePanel';
@@ -314,7 +314,7 @@ function ConnectShopBanner({ onConnect, error, isLoading, canConnect }: { onConn
 // Dashboard Panel - Tổng quan với thống kê và thông tin chi tiết
 function DashboardPanel({ onNavigate }: { onNavigate: (path: string) => void }) {
   const { token, shops } = useShopeeAuth();
-  const { user, profile } = useAuth();
+  const { user, profile } = useAuthContext();
   
   const currentShop = shops.find(s => s.shop_id === token?.shop_id);
   const shopName = currentShop?.shop_name || `Shop ${token?.shop_id}`;
@@ -579,7 +579,7 @@ const Index = () => {
   const navigate = useNavigate();
   
   // Auth states
-  const { user, profile, isAuthenticated: isUserAuthenticated, isLoading: isUserLoading, signOut } = useAuth();
+  const { user, profile, isAuthenticated: isUserAuthenticated, isLoading: isUserLoading, signOut } = useAuthContext();
   const { token, isLoading: isShopeeLoading, error: shopeeError, login: connectShopee, logout: disconnectShopee, shops } = useShopeeAuth();
   
   const canManageShops = profile?.role_name === 'admin' || profile?.role_name === 'super_admin';

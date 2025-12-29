@@ -9,14 +9,7 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { useShopeeAuth } from '@/hooks/useShopeeAuth';
 import { LoadingState } from '@/components/ui/spinner';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { DataTable, CellBadge, CellText, CellActions } from '@/components/ui/data-table';
 import {
   Select,
   SelectContent,
@@ -84,18 +77,22 @@ export default function ScheduledPanel() {
     });
   };
 
-  // Format khung giờ Flash Sale (start_time -> end_time)
-  const formatTimeSlot = (startTs: number, endTs?: number) => {
+  // Format ngày Flash Sale
+  const formatSlotDate = (startTs: number) => {
+    const startDate = new Date(startTs * 1000);
+    return `${String(startDate.getDate()).padStart(2, '0')}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${startDate.getFullYear()}`;
+  };
+
+  // Format thời gian Flash Sale (start_time -> end_time)
+  const formatSlotTime = (startTs: number, endTs?: number) => {
     const startDate = new Date(startTs * 1000);
     // Nếu có end_time thì dùng, không thì mặc định +3 giờ
     const endDate = endTs ? new Date(endTs * 1000) : new Date((startTs + 3 * 60 * 60) * 1000);
     
     const startTime = startDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
     const endTime = endDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-    const dateStr = `${String(startDate.getDate()).padStart(2, '0')}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${startDate.getFullYear()}`;
     
-    // Format: "15:00 27-12-2025 - 17:00"
-    return `${startTime} ${dateStr} - ${endTime}`;
+    return `${startTime} - ${endTime}`;
   };
 
   const fetchSchedules = async (showLoading = true) => {
@@ -108,7 +105,7 @@ export default function ScheduledPanel() {
         .from('scheduled_flash_sales')
         .select('*')
         .eq('shop_id', token.shop_id)
-        .order('scheduled_at', { ascending: true });
+        .order('target_start_time', { ascending: false });
 
       if (error) throw error;
       setSchedules(data || []);
@@ -339,79 +336,133 @@ export default function ScheduledPanel() {
               </div>
             </div>
           ) : (
-            <Table>
-              <TableHeader className="sticky top-0 bg-slate-50 z-10">
-                <TableRow>
-                  <TableHead className="w-[220px]">Khung giờ</TableHead>
-                  <TableHead className="text-center">Trạng thái</TableHead>
-                  <TableHead className="text-center">Thời gian chạy</TableHead>
-                  <TableHead className="text-center w-[200px]">Thao tác</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredSchedules.map((item) => {
-                  const statusInfo = STATUS_MAP[item.status];
-                  
-                  return (
-                    <TableRow 
-                      key={item.id}
-                      className="hover:bg-slate-50"
-                    >
-                      <TableCell>
-                        <p className="font-medium text-slate-800">
-                          {formatTimeSlot(item.target_start_time, item.target_end_time)}
+            <DataTable
+              columns={[
+                {
+                  key: 'date',
+                  header: 'Ngày',
+                  width: '120px',
+                  render: (item: ScheduledItem) => (
+                    <CellText>{formatSlotDate(item.target_start_time)}</CellText>
+                  ),
+                },
+                {
+                  key: 'time',
+                  header: 'Thời gian',
+                  width: '130px',
+                  render: (item: ScheduledItem) => (
+                    <CellText muted>{formatSlotTime(item.target_start_time, item.target_end_time)}</CellText>
+                  ),
+                },
+                {
+                  key: 'status',
+                  header: 'Trạng thái',
+                  align: 'center',
+                  render: (item: ScheduledItem) => {
+                    const statusInfo = STATUS_MAP[item.status];
+                    const variant = item.status === 'completed' ? 'success' 
+                      : item.status === 'failed' ? 'error'
+                      : item.status === 'running' ? 'info'
+                      : 'warning';
+                    return (
+                      <CellBadge variant={variant}>
+                        {statusInfo?.icon} {statusInfo?.label}
+                      </CellBadge>
+                    );
+                  },
+                },
+                {
+                  key: 'scheduled_at',
+                  header: 'Thời gian chạy',
+                  align: 'center',
+                  render: (item: ScheduledItem) => (
+                    <span className="text-sm font-medium text-violet-600">{formatDate(item.scheduled_at)}</span>
+                  ),
+                },
+                {
+                  key: 'result',
+                  header: 'Chi tiết kết quả',
+                  width: '280px',
+                  render: (item: ScheduledItem) => (
+                    <>
+                      {item.status === 'completed' && (
+                        <div className="text-sm">
+                          {item.result_flash_sale_id && (
+                            <p className="text-green-600 font-medium">
+                              ✅ Flash Sale ID: {item.result_flash_sale_id}
+                            </p>
+                          )}
+                          {item.result_message && (
+                            <p className="text-slate-600 text-xs mt-0.5 line-clamp-2" title={item.result_message}>
+                              {item.result_message}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      {item.status === 'failed' && item.result_message && (
+                        <p className="text-red-600 text-xs line-clamp-2" title={item.result_message}>
+                          ❌ {item.result_message}
                         </p>
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <span className={`text-xs px-2 py-1 rounded-full font-medium ${statusInfo?.color}`}>
-                          {statusInfo?.icon} {statusInfo?.label}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <span className="font-medium text-violet-600">{formatDate(item.scheduled_at)}</span>
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {item.status === 'pending' && (
-                          <div className="flex items-center justify-center gap-1">
-                            <button
-                              onClick={() => handleEditSchedule(item)}
-                              className="px-2 py-1 hover:bg-blue-100 rounded-md text-blue-600 text-xs font-medium flex items-center gap-1"
-                              title="Chỉnh sửa"
-                            >
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                              </svg>
-                              Sửa
-                            </button>
-                            <button
-                              onClick={() => handleForceRun(item.id)}
-                              disabled={processing}
-                              className="px-2 py-1 hover:bg-violet-100 rounded-md text-violet-600 text-xs font-medium flex items-center gap-1"
-                              title="Chạy ngay"
-                            >
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                              </svg>
-                              Chạy
-                            </button>
-                            <button
-                              onClick={() => handleCancel(item.id)}
-                              className="px-2 py-1 hover:bg-red-100 rounded-md text-red-500 text-xs font-medium flex items-center gap-1"
-                              title="Hủy"
-                            >
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                              </svg>
-                              Hủy
-                            </button>
-                          </div>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                      )}
+                      {item.status === 'pending' && (
+                        <CellText muted>Chưa chạy</CellText>
+                      )}
+                      {item.status === 'running' && (
+                        <span className="text-blue-500 text-xs">Đang xử lý...</span>
+                      )}
+                    </>
+                  ),
+                },
+                {
+                  key: 'actions',
+                  header: 'Thao tác',
+                  align: 'center',
+                  render: (item: ScheduledItem) => (
+                    item.status === 'pending' ? (
+                      <CellActions>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                          onClick={(e) => { e.stopPropagation(); handleEditSchedule(item); }}
+                        >
+                          <svg className="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                          Sửa
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-violet-600 hover:text-violet-700 hover:bg-violet-50"
+                          onClick={(e) => { e.stopPropagation(); handleForceRun(item.id); }}
+                          disabled={processing}
+                        >
+                          <svg className="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                          </svg>
+                          Chạy
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-red-500 hover:text-red-600 hover:bg-red-50 px-2"
+                          onClick={(e) => { e.stopPropagation(); handleCancel(item.id); }}
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </Button>
+                      </CellActions>
+                    ) : null
+                  ),
+                },
+              ]}
+              data={filteredSchedules}
+              keyExtractor={(item) => item.id}
+              emptyMessage="Chưa có lịch hẹn nào"
+              emptyDescription="Vào Flash Sale và chọn 'Hẹn giờ' khi sao chép"
+            />
           )}
         </div>
       </div>

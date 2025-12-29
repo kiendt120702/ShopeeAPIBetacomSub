@@ -30,6 +30,8 @@ interface Shop {
   expired_at: number | null;
   auth_time: number | null;
   expire_time: number | null;
+  access_token: string | null;
+  refresh_token: string | null;
 }
 
 interface ShopWithRole extends Shop {
@@ -48,6 +50,7 @@ export function ShopManagementPanel() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [shopToDelete, setShopToDelete] = useState<ShopWithRole | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [refreshingToken, setRefreshingToken] = useState<number | null>(null);
 
   const loadShops = async () => {
     if (!user?.id) return;
@@ -72,7 +75,7 @@ export function ShopManagementPanel() {
 
       const { data: shopsData, error: shopsError } = await supabase
         .from('shops')
-        .select('shop_id, shop_name, shop_logo, region, partner_id, created_at, token_updated_at, expired_at, auth_time, expire_time')
+        .select('shop_id, shop_name, shop_logo, region, partner_id, created_at, token_updated_at, expired_at, auth_time, expire_time, access_token, refresh_token')
         .in('shop_id', shopIds);
 
       if (shopsError) throw shopsError;
@@ -212,6 +215,89 @@ export function ShopManagementPanel() {
     });
   };
 
+  // Kiểm tra trạng thái token
+  const getTokenStatus = (shop: ShopWithRole) => {
+    if (!shop.access_token) {
+      return { status: 'missing', label: 'Chưa có token', color: 'bg-slate-100 text-slate-600', expireTime: null };
+    }
+    
+    if (!shop.expired_at) {
+      return { status: 'unknown', label: 'Không rõ', color: 'bg-slate-100 text-slate-600', expireTime: null };
+    }
+
+    const now = Date.now();
+    const expiredAt = shop.expired_at;
+    const timeLeft = expiredAt - now;
+    
+    // Format thời gian hết hạn: "19:11 29/12"
+    const expireDate = new Date(expiredAt);
+    const expireTime = expireDate.toLocaleString('vi-VN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      day: '2-digit',
+      month: '2-digit',
+    });
+    
+    if (timeLeft <= 0) {
+      return { status: 'expired', label: `Hết hạn lúc ${expireTime}`, color: 'bg-red-100 text-red-700', expireTime };
+    }
+    
+    // Còn dưới 30 phút - cảnh báo đỏ
+    if (timeLeft < 30 * 60 * 1000) {
+      return { status: 'expiring', label: `⚠️ ${expireTime}`, color: 'bg-red-100 text-red-700', expireTime };
+    }
+    
+    // Còn dưới 1 giờ - cảnh báo vàng
+    if (timeLeft < 60 * 60 * 1000) {
+      return { status: 'warning', label: `⚠️ ${expireTime}`, color: 'bg-amber-100 text-amber-700', expireTime };
+    }
+    
+    // Còn hạn - màu xanh
+    return { status: 'valid', label: expireTime, color: 'bg-green-100 text-green-700', expireTime };
+  };
+
+  // Refresh token thủ công
+  const handleRefreshToken = async (shop: ShopWithRole) => {
+    if (!shop.refresh_token) {
+      toast({
+        title: 'Lỗi',
+        description: 'Không có refresh token. Vui lòng kết nối lại shop.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setRefreshingToken(shop.shop_id);
+    try {
+      const { data, error } = await supabase.functions.invoke('shopee-auth', {
+        body: {
+          action: 'refresh-token',
+          refresh_token: shop.refresh_token,
+          shop_id: shop.shop_id,
+        },
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.message || data.error);
+
+      // Reload shops để cập nhật thông tin mới
+      await loadShops();
+      
+      toast({ 
+        title: 'Thành công', 
+        description: `Đã refresh token cho ${shop.shop_name || shop.shop_id}` 
+      });
+    } catch (err) {
+      toast({
+        title: 'Lỗi refresh token',
+        description: (err as Error).message,
+        variant: 'destructive',
+      });
+    } finally {
+      setRefreshingToken(null);
+    }
+  };
+
   const columns = [
     {
       key: 'shop',
@@ -252,10 +338,43 @@ export function ShopManagementPanel() {
     },
     {
       key: 'expire_time',
-      header: 'Hết hạn',
+      header: 'Hết hạn UQ',
       render: (shop: ShopWithRole) => (
         <CellText muted>{formatDate(shop.expire_time)}</CellText>
       ),
+    },
+    {
+      key: 'token_status',
+      header: 'Token Status',
+      render: (shop: ShopWithRole) => {
+        const tokenStatus = getTokenStatus(shop);
+        return (
+          <div className="flex items-center gap-2">
+            <span className={`text-xs px-2 py-1 rounded-full font-medium ${tokenStatus.color}`}>
+              {tokenStatus.label}
+            </span>
+            {shop.refresh_token && (tokenStatus.status === 'expired' || tokenStatus.status === 'expiring' || tokenStatus.status === 'warning') && (
+              <button
+                onClick={(e) => { e.stopPropagation(); handleRefreshToken(shop); }}
+                disabled={refreshingToken === shop.shop_id}
+                className="p-1 hover:bg-slate-100 rounded text-violet-600"
+                title="Refresh token"
+              >
+                {refreshingToken === shop.shop_id ? (
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                )}
+              </button>
+            )}
+          </div>
+        );
+      },
     },
     {
       key: 'actions',
