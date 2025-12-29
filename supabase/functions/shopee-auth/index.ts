@@ -61,7 +61,7 @@ async function getPartnerCredentials(
   // Nếu có shop_id, lấy partner từ shop
   if (shopId) {
     const { data, error } = await supabase
-      .from('shops')
+      .from('apishopee_shops')
       .select('partner_id, partner_key, partner_name')
       .eq('shop_id', shopId)
       .single();
@@ -251,7 +251,7 @@ async function saveToken(
     }
   }
 
-  const { error } = await supabase.from('shops').upsert(shopData, {
+  const { error } = await supabase.from('apishopee_shops').upsert(shopData, {
     onConflict: 'shop_id',
   });
 
@@ -266,7 +266,7 @@ async function saveToken(
  */
 async function getToken(supabase: ReturnType<typeof createClient>, shopId: number) {
   const { data, error } = await supabase
-    .from('shops')
+    .from('apishopee_shops')
     .select('*')
     .eq('shop_id', shopId)
     .single();

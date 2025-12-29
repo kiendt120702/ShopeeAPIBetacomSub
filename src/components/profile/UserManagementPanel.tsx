@@ -44,7 +44,7 @@ interface ShopMember {
 }
 
 export function UserManagementPanel() {
-  const { user: currentUser, profile } = useAuth();
+  const { user: currentUser, profile, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
@@ -80,23 +80,23 @@ export function UserManagementPanel() {
   const canManageUsers = isAdmin || isSuperAdmin;
 
   useEffect(() => {
-    if (canManageUsers) {
+    if (!authLoading && canManageUsers) {
       loadUsers();
       loadMyShops();
     }
-  }, [canManageUsers]);
+  }, [authLoading, canManageUsers]);
 
   const loadUsers = async () => {
     setLoading(true);
     try {
       const { data, error } = await supabase
-        .from('profiles')
+        .from('sys_profiles')
         .select(`
           id, 
           email, 
           full_name, 
           created_at,
-          roles (name)
+          sys_roles (name)
         `)
         .order('created_at', { ascending: false });
 
@@ -105,7 +105,7 @@ export function UserManagementPanel() {
       // Map role từ roles table nếu có
       const usersWithRole = (data || []).map(user => ({
         ...user,
-        role: (user.roles as any)?.name || 'user',
+        role: (user.sys_roles as any)?.name || 'user',
       }));
       
       setUsers(usersWithRole);
@@ -126,11 +126,11 @@ export function UserManagementPanel() {
     try {
       // Lấy shops mà current user là admin
       const { data, error } = await supabase
-        .from('shop_members')
+        .from('apishopee_shop_members')
         .select(`
           shop_id,
           role,
-          shops (shop_id, shop_name, region)
+          apishopee_shops (shop_id, shop_name, region)
         `)
         .eq('user_id', currentUser.id)
         .eq('role', 'admin');
@@ -139,8 +139,8 @@ export function UserManagementPanel() {
 
       const shops = (data || []).map(item => ({
         shop_id: item.shop_id,
-        shop_name: (item.shops as any)?.shop_name || `Shop ${item.shop_id}`,
-        region: (item.shops as any)?.region || 'VN',
+        shop_name: (item.apishopee_shops as any)?.shop_name || `Shop ${item.shop_id}`,
+        region: (item.apishopee_shops as any)?.region || 'VN',
       }));
       setMyShops(shops);
     } catch (error) {
@@ -151,12 +151,12 @@ export function UserManagementPanel() {
   const loadUserShopMembers = async (userId: string) => {
     try {
       const { data, error } = await supabase
-        .from('shop_members')
+        .from('apishopee_shop_members')
         .select(`
           shop_id,
           user_id,
           role,
-          shops (shop_name)
+          apishopee_shops (shop_name)
         `)
         .eq('user_id', userId);
 
@@ -166,7 +166,7 @@ export function UserManagementPanel() {
         shop_id: item.shop_id,
         user_id: item.user_id,
         role: item.role,
-        shop_name: (item.shops as any)?.shop_name || `Shop ${item.shop_id}`,
+        shop_name: (item.apishopee_shops as any)?.shop_name || `Shop ${item.shop_id}`,
       }));
       setUserShopMembers(members);
     } catch (error) {
@@ -212,7 +212,7 @@ export function UserManagementPanel() {
         };
         
         const { data: roleData } = await supabase
-          .from('roles')
+          .from('sys_roles')
           .select('id')
           .eq('name', roleNameMap[editRole] || 'member')
           .single();
@@ -223,7 +223,7 @@ export function UserManagementPanel() {
       }
 
       const { error } = await supabase
-        .from('profiles')
+        .from('sys_profiles')
         .update(updateData)
         .eq('id', editingUser.id);
 
@@ -254,7 +254,7 @@ export function UserManagementPanel() {
     setSaving(true);
     try {
       const { error } = await supabase
-        .from('shop_members')
+        .from('apishopee_shop_members')
         .upsert({
           shop_id: parseInt(assignShopId),
           user_id: selectedUser.id,
@@ -288,7 +288,7 @@ export function UserManagementPanel() {
     setSaving(true);
     try {
       const { error } = await supabase
-        .from('shop_members')
+        .from('apishopee_shop_members')
         .delete()
         .eq('shop_id', shopId)
         .eq('user_id', userId);
@@ -477,6 +477,17 @@ export function UserManagementPanel() {
       ? 'bg-green-100 text-green-800' 
       : 'bg-blue-100 text-blue-800';
   };
+
+  // Đang load auth, chờ profile
+  if (authLoading) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-center">
+          <p className="text-gray-500">Đang tải...</p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (!canManageUsers) {
     return (

@@ -234,7 +234,7 @@ export async function saveUserShop(
   // 1. Tạo shop member relationship TRƯỚC
   // Điều này đảm bảo user có quyền update shop (RLS policy yêu cầu user là admin)
   const { error: memberError } = await supabase
-    .from('shop_members')
+    .from('apishopee_shop_members')
     .upsert({
       user_id: userId,
       shop_id: shopId,
@@ -269,7 +269,7 @@ export async function saveUserShop(
   }
 
   const { error: shopError } = await supabase
-    .from('shops')
+    .from('apishopee_shops')
     .upsert(shopData, {
       onConflict: 'shop_id',
     });
@@ -285,11 +285,11 @@ export async function saveUserShop(
 export async function getUserShops(userId: string) {
   try {
     const { data, error } = await supabase
-      .from('shop_members')
+      .from('apishopee_shop_members')
       .select(`
         shop_id,
         role,
-        shops (
+        apishopee_shops (
           shop_id,
           shop_name,
           region,
@@ -305,7 +305,7 @@ export async function getUserShops(userId: string) {
 
     // Transform data
     return (data || []).map(item => {
-      const shop = item.shops as any;
+      const shop = item.apishopee_shops as any;
       return {
         shop_id: item.shop_id,
         shop_name: shop?.shop_name || `Shop ${item.shop_id}`,
@@ -327,10 +327,10 @@ export async function getUserProfile(userId: string) {
   
   // Query profile with role join in one query
   const { data: profileWithRole, error: joinError } = await supabase
-    .from('profiles')
+    .from('sys_profiles')
     .select(`
       *,
-      roles:role_id (
+      sys_roles:role_id (
         name,
         display_name
       )
@@ -342,7 +342,7 @@ export async function getUserProfile(userId: string) {
 
   // Nếu join query thành công
   if (profileWithRole && !joinError) {
-    const roleInfo = profileWithRole.roles as any;
+    const roleInfo = profileWithRole.sys_roles as any;
     const result = {
       id: profileWithRole.id,
       email: profileWithRole.email,
@@ -360,7 +360,7 @@ export async function getUserProfile(userId: string) {
 
   // Fallback: Query profile separately
   const { data: profileData, error: profileError } = await supabase
-    .from('profiles')
+    .from('sys_profiles')
     .select('*')
     .eq('id', userId)
     .single();
@@ -377,13 +377,13 @@ export async function getUserProfile(userId: string) {
       
       // Get default member role
       const { data: memberRole } = await supabase
-        .from('roles')
+        .from('sys_roles')
         .select('id')
         .eq('name', 'member')
         .single();
       
       const { data: newProfile, error: insertError } = await supabase
-        .from('profiles')
+        .from('sys_profiles')
         .insert({
           id: userId,
           email: user?.email || '',
@@ -417,7 +417,7 @@ export async function getUserProfile(userId: string) {
   
   if (profileData.role_id) {
     const { data: roleData, error: roleError } = await supabase
-      .from('roles')
+      .from('sys_roles')
       .select('name, display_name')
       .eq('id', profileData.role_id)
       .single();

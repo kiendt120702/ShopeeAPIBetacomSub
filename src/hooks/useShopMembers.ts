@@ -226,7 +226,7 @@ export const useShopMembers = (shopId?: number) => {
 
     try {
       const { error } = await supabase
-        .from('shop_members')
+        .from('apishopee_shop_members')
         .insert({
           shop_id: shopId,
           user_id: user.id,

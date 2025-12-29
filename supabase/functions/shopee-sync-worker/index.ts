@@ -36,7 +36,7 @@ async function getPartnerCredentials(
 ): Promise<PartnerCredentials> {
   // Tìm partner từ shop
   const { data, error } = await supabase
-    .from('shops')
+    .from('apishopee_shops')
     .select('partner_id, partner_key')
     .eq('shop_id', shopId)
     .single();
@@ -91,7 +91,7 @@ async function getTokenWithAutoRefresh(supabase: any, shopId: number, userId?: s
   
   // 1. Tìm token từ bảng shops (nơi frontend lưu token)
   const { data: shopData, error: shopError } = await supabase
-    .from('shops')
+    .from('apishopee_shops')
     .select('shop_id, access_token, refresh_token, expired_at, merchant_id')
     .eq('shop_id', shopId)
     .single();
@@ -221,7 +221,7 @@ async function saveRefreshedToken(
   const expiredAt = Date.now() + newToken.expire_in * 1000;
   
   const { error } = await supabase
-    .from('shops')
+    .from('apishopee_shops')
     .update({
       access_token: newToken.access_token,
       refresh_token: newToken.refresh_token,
@@ -324,7 +324,7 @@ async function updateSyncProgress(supabase: any, shopId: number, userId: string,
   is_syncing: boolean;
 }) {
   await supabase
-    .from('sync_status')
+    .from('apishopee_sync_status')
     .upsert({
       shop_id: shopId,
       user_id: userId,
@@ -395,7 +395,7 @@ async function syncFlashSaleData(supabase: any, shopId: number, userId: string) 
 
     // Clear old data for this shop (không filter user_id để tất cả user có quyền truy cập shop đều thấy dữ liệu mới)
     await supabase
-      .from('flash_sale_data')
+      .from('apishopee_flash_sale_data')
       .delete()
       .eq('shop_id', shopId);
 
@@ -428,7 +428,7 @@ async function syncFlashSaleData(supabase: any, shopId: number, userId: string) 
       });
 
       const { error: insertError } = await supabase
-        .from('flash_sale_data')
+        .from('apishopee_flash_sale_data')
         .insert(dataToInsert);
 
       if (insertError) {
@@ -487,7 +487,7 @@ async function syncAdsCampaignData(supabase: any, shopId: number, userId: string
 
     // Clear old data for this shop (không filter user_id để tất cả user có quyền truy cập shop đều thấy dữ liệu mới)
     await supabase
-      .from('ads_campaign_data')
+      .from('apishopee_ads_campaign_data')
       .delete()
       .eq('shop_id', shopId);
 
@@ -540,7 +540,7 @@ async function syncAdsCampaignData(supabase: any, shopId: number, userId: string
           }));
 
           const { error: insertError } = await supabase
-            .from('ads_campaign_data')
+            .from('apishopee_ads_campaign_data')
             .insert(campaignsToInsert);
 
           if (insertError) {
@@ -572,7 +572,7 @@ async function updateSyncStatus(supabase: any, shopId: number, userId: string, f
   
   // Upsert sync_status
   const { error } = await supabase
-    .from('sync_status')
+    .from('apishopee_sync_status')
     .upsert({
       shop_id: shopId,
       user_id: userId,
@@ -591,7 +591,7 @@ async function updateSyncStatus(supabase: any, shopId: number, userId: string, f
 
 async function updateSyncJob(supabase: any, jobId: string, updates: any) {
   const { error } = await supabase
-    .from('sync_jobs')
+    .from('apishopee_sync_jobs')
     .update({
       ...updates,
       updated_at: new Date().toISOString()
@@ -719,7 +719,7 @@ serve(async (req) => {
 
         // Create sync job
         const { data: job, error: jobError } = await supabase
-          .from('sync_jobs')
+          .from('apishopee_sync_jobs')
           .insert({
             shop_id,
             user_id,

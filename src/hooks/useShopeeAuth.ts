@@ -97,7 +97,7 @@ export function useShopeeAuth(): UseShopeeAuthReturn {
           // Lấy thông tin chi tiết các shop
           const shopIds = userShops.map((s: { shop_id: number }) => s.shop_id);
           const { data: shopsData } = await supabase
-            .from('shops')
+            .from('apishopee_shops')
             .select('shop_id, shop_name, shop_logo, region, access_token, refresh_token, expired_at, expire_in, merchant_id')
             .in('shop_id', shopIds);
           

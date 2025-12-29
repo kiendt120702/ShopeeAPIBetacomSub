@@ -45,7 +45,7 @@ async function getPartnerCredentials(
   shopId: number
 ): Promise<PartnerCredentials> {
   const { data, error } = await supabase
-    .from('shops')
+    .from('apishopee_shops')
     .select('partner_id, partner_key')
     .eq('shop_id', shopId)
     .single();
@@ -105,7 +105,7 @@ async function refreshAccessToken(credentials: PartnerCredentials, refreshToken:
 
 async function saveToken(supabase: ReturnType<typeof createClient>, shopId: number, token: Record<string, unknown>) {
   // Chỉ cập nhật bảng shops (đã consolidate schema)
-  await supabase.from('shops').upsert({
+  await supabase.from('apishopee_shops').upsert({
     shop_id: shopId,
     access_token: token.access_token,
     refresh_token: token.refresh_token,
@@ -118,7 +118,7 @@ async function saveToken(supabase: ReturnType<typeof createClient>, shopId: numb
 async function getTokenWithAutoRefresh(supabase: ReturnType<typeof createClient>, shopId: number) {
   // 1. Tìm token từ bảng shops
   const { data: shopData, error: shopError } = await supabase
-    .from('shops')
+    .from('apishopee_shops')
     .select('shop_id, access_token, refresh_token, expired_at')
     .eq('shop_id', shopId)
     .single();
@@ -231,7 +231,7 @@ serve(async (req) => {
           });
         }
 
-        const { data, error } = await supabase.from('scheduled_ads_budget').insert({
+        const { data, error } = await supabase.from('apishopee_scheduled_ads_budget').insert({
           shop_id,
           campaign_id,
           campaign_name,
@@ -265,7 +265,7 @@ serve(async (req) => {
         }
 
         const { data, error } = await supabase
-          .from('scheduled_ads_budget')
+          .from('apishopee_scheduled_ads_budget')
           .update(updateData)
           .eq('id', schedule_id)
           .eq('shop_id', shop_id)
@@ -288,7 +288,7 @@ serve(async (req) => {
         const { schedule_id } = params;
 
         const { error } = await supabase
-          .from('scheduled_ads_budget')
+          .from('apishopee_scheduled_ads_budget')
           .delete()
           .eq('id', schedule_id)
           .eq('shop_id', shop_id);
@@ -309,7 +309,7 @@ serve(async (req) => {
         const { campaign_id } = params;
 
         let query = supabase
-          .from('scheduled_ads_budget')
+          .from('apishopee_scheduled_ads_budget')
           .select('*')
           .eq('shop_id', shop_id)
           .order('campaign_id')
@@ -337,7 +337,7 @@ serve(async (req) => {
         const { campaign_id, limit = 50 } = params;
 
         let query = supabase
-          .from('ads_budget_logs')
+          .from('apishopee_ads_budget_logs')
           .select('*')
           .eq('shop_id', shop_id)
           .order('executed_at', { ascending: false })
@@ -373,7 +373,7 @@ serve(async (req) => {
 
         // Lấy tất cả cấu hình active phù hợp với giờ hiện tại
         const { data: schedules, error: fetchError } = await supabase
-          .from('scheduled_ads_budget')
+          .from('apishopee_scheduled_ads_budget')
           .select('*')
           .eq('is_active', true)
           .lte('hour_start', currentHour)
@@ -418,7 +418,7 @@ serve(async (req) => {
               );
 
               // Log kết quả
-              await supabase.from('ads_budget_logs').insert({
+              await supabase.from('apishopee_ads_budget_logs').insert({
                 shop_id: shopId,
                 campaign_id: schedule.campaign_id,
                 schedule_id: schedule.id,
@@ -437,7 +437,7 @@ serve(async (req) => {
             } catch (err) {
               console.error(`[PROCESS] Error for campaign ${schedule.campaign_id}:`, err);
 
-              await supabase.from('ads_budget_logs').insert({
+              await supabase.from('apishopee_ads_budget_logs').insert({
                 shop_id: shopId,
                 campaign_id: schedule.campaign_id,
                 schedule_id: schedule.id,
@@ -473,7 +473,7 @@ serve(async (req) => {
         const { schedule_id } = params;
 
         const { data: schedule, error: fetchError } = await supabase
-          .from('scheduled_ads_budget')
+          .from('apishopee_scheduled_ads_budget')
           .select('*')
           .eq('id', schedule_id)
           .eq('shop_id', shop_id)
@@ -494,7 +494,7 @@ serve(async (req) => {
         );
 
         // Log kết quả
-        await supabase.from('ads_budget_logs').insert({
+        await supabase.from('apishopee_ads_budget_logs').insert({
           shop_id,
           campaign_id: schedule.campaign_id,
           schedule_id: schedule.id,

@@ -59,7 +59,7 @@ serve(async (req) => {
 
       // Check if current user is admin of the shop
       const { data: adminCheck } = await supabaseClient
-        .from('shop_members')
+        .from('apishopee_shop_members')
         .select('role')
         .eq('shop_id', shop_id)
         .eq('user_id', user.id)
@@ -75,7 +75,7 @@ serve(async (req) => {
 
       // Find user by email
       const { data: targetUser, error: userError } = await supabaseClient
-        .from('profiles')
+        .from('sys_profiles')
         .select('id, email, full_name')
         .eq('email', email.toLowerCase())
         .single()
@@ -89,7 +89,7 @@ serve(async (req) => {
 
       // Check if user is already a member
       const { data: existingMember } = await supabaseClient
-        .from('shop_members')
+        .from('apishopee_shop_members')
         .select('role')
         .eq('shop_id', shop_id)
         .eq('user_id', targetUser.id)
@@ -107,7 +107,7 @@ serve(async (req) => {
 
       // Add user as member
       const { data: newMember, error: insertError } = await supabaseClient
-        .from('shop_members')
+        .from('apishopee_shop_members')
         .insert({
           shop_id,
           user_id: targetUser.id,
@@ -118,7 +118,7 @@ serve(async (req) => {
           role,
           created_at,
           user_id,
-          profiles!inner(email, full_name, avatar_url)
+          sys_profiles!inner(email, full_name, avatar_url)
         `)
         .single()
 
@@ -153,7 +153,7 @@ serve(async (req) => {
 
       // Check if current user is admin of the shop
       const { data: adminCheck } = await supabaseClient
-        .from('shop_members')
+        .from('apishopee_shop_members')
         .select('role')
         .eq('shop_id', shop_id)
         .eq('user_id', user.id)
@@ -170,7 +170,7 @@ serve(async (req) => {
       // Prevent admin from removing themselves if they're the only admin
       if (user_id === user.id) {
         const { count: adminCount } = await supabaseClient
-          .from('shop_members')
+          .from('apishopee_shop_members')
           .select('*', { count: 'exact', head: true })
           .eq('shop_id', shop_id)
           .eq('role', 'admin')
@@ -185,7 +185,7 @@ serve(async (req) => {
 
       // Remove member
       const { error: deleteError } = await supabaseClient
-        .from('shop_members')
+        .from('apishopee_shop_members')
         .delete()
         .eq('shop_id', shop_id)
         .eq('user_id', user_id)
@@ -216,7 +216,7 @@ serve(async (req) => {
 
       // Check if user has access to this shop
       const { data: memberCheck } = await supabaseClient
-        .from('shop_members')
+        .from('apishopee_shop_members')
         .select('role')
         .eq('shop_id', shop_id)
         .eq('user_id', user.id)
@@ -268,7 +268,7 @@ serve(async (req) => {
 
       // Check if current user is admin
       const { data: adminCheck } = await supabaseClient
-        .from('shop_members')
+        .from('apishopee_shop_members')
         .select('role')
         .eq('shop_id', shop_id)
         .eq('user_id', user.id)
@@ -284,7 +284,7 @@ serve(async (req) => {
 
       // Update role
       const { error: updateError } = await supabaseClient
-        .from('shop_members')
+        .from('apishopee_shop_members')
         .update({ role: new_role })
         .eq('shop_id', shop_id)
         .eq('user_id', user_id)

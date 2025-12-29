@@ -102,7 +102,7 @@ export default function ScheduledPanel() {
     try {
       // Load trực tiếp từ database thay vì gọi edge function
       const { data, error } = await supabase
-        .from('scheduled_flash_sales')
+        .from('apishopee_scheduled_flash_sales')
         .select('*')
         .eq('shop_id', token.shop_id)
         .order('target_start_time', { ascending: false });

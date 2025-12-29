@@ -58,7 +58,7 @@ export function ShopManagementPanel() {
     setLoading(true);
     try {
       const { data: memberData, error: memberError } = await supabase
-        .from('shop_members')
+        .from('apishopee_shop_members')
         .select('shop_id, role')
         .eq('user_id', user.id);
 
@@ -74,7 +74,7 @@ export function ShopManagementPanel() {
       const roleMap = new Map(memberData.map(m => [m.shop_id, m.role]));
 
       const { data: shopsData, error: shopsError } = await supabase
-        .from('shops')
+        .from('apishopee_shops')
         .select('shop_id, shop_name, shop_logo, region, partner_id, created_at, token_updated_at, expired_at, auth_time, expire_time, access_token, refresh_token')
         .in('shop_id', shopIds);
 
@@ -165,14 +165,14 @@ export function ShopManagementPanel() {
     setDeleting(true);
     try {
       const { error: membersError } = await supabase
-        .from('shop_members')
+        .from('apishopee_shop_members')
         .delete()
         .eq('shop_id', shopToDelete.shop_id);
 
       if (membersError) throw membersError;
 
       const { error: shopError } = await supabase
-        .from('shops')
+        .from('apishopee_shops')
         .delete()
         .eq('shop_id', shopToDelete.shop_id);
 

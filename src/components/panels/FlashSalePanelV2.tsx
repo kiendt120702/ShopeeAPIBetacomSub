@@ -136,7 +136,7 @@ export default function FlashSalePanelV2() {
       }
 
       // Delete from local DB
-      await supabase.from('flash_sale_data').delete().eq('id', selectedSale.id);
+      await supabase.from('apishopee_flash_sale_data').delete().eq('id', selectedSale.id);
       
       toast({ title: 'Thành công', description: 'Đã xóa Flash Sale' });
       setSelectedSale(null);

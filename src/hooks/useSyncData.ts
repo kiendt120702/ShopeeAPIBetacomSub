@@ -37,7 +37,7 @@ export function useSyncData(options: UseSyncDataOptions) {
     if (!shopId || !userId) return null;
 
     const { data, error } = await supabase
-      .from('sync_status')
+      .from('apishopee_sync_status')
       .select('*')
       .eq('shop_id', shopId)
       .eq('user_id', userId)

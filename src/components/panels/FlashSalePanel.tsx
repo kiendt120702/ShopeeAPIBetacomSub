@@ -162,7 +162,7 @@ const FlashSalePanel = forwardRef<FlashSalePanelRef>((_, ref) => {
     try {
       // Load theo shop_id, không filter user_id để tất cả user có quyền truy cập shop đều thấy
       const { data, error } = await supabase
-        .from('flash_sale_data')
+        .from('apishopee_flash_sale_data')
         .select('*')
         .eq('shop_id', token.shop_id)
         .order('type', { ascending: true });
@@ -326,7 +326,7 @@ const FlashSalePanel = forwardRef<FlashSalePanelRef>((_, ref) => {
           body: { action: 'get-time-slots', shop_id: token.shop_id, start_time: now, end_time: now + 30 * 24 * 60 * 60 },
         }),
         supabase
-          .from('scheduled_flash_sales')
+          .from('apishopee_scheduled_flash_sales')
           .select('target_timeslot_id')
           .eq('shop_id', token.shop_id)
           .eq('status', 'pending')

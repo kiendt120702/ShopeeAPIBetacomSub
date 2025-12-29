@@ -42,7 +42,7 @@ async function getPartnerCredentials(
   shopId: number
 ): Promise<PartnerCredentials> {
   const { data, error } = await supabase
-    .from('shops')
+    .from('apishopee_shops')
     .select('partner_id, partner_key')
     .eq('shop_id', shopId)
     .single();
@@ -119,7 +119,7 @@ async function refreshAccessToken(credentials: PartnerCredentials, refreshToken:
 
 async function saveToken(supabase: ReturnType<typeof createClient>, shopId: number, token: Record<string, unknown>) {
   // Chỉ cập nhật bảng shops (đã consolidate schema)
-  await supabase.from('shops').upsert({
+  await supabase.from('apishopee_shops').upsert({
     shop_id: shopId,
     access_token: token.access_token,
     refresh_token: token.refresh_token,
@@ -132,7 +132,7 @@ async function saveToken(supabase: ReturnType<typeof createClient>, shopId: numb
 async function getTokenWithAutoRefresh(supabase: ReturnType<typeof createClient>, shopId: number) {
   // 1. Tìm token từ bảng shops
   const { data: shopData, error: shopError } = await supabase
-    .from('shops')
+    .from('apishopee_shops')
     .select('shop_id, access_token, refresh_token, expired_at, partner_id, partner_key')
     .eq('shop_id', shopId)
     .single();
@@ -387,7 +387,7 @@ serve(async (req) => {
           // Tính thời gian thực hiện (trước X phút)
           const scheduledAt = new Date((schedule.start_time - minutesToRun * 60) * 1000);
           
-          const { data, error } = await supabase.from('scheduled_flash_sales').insert({
+          const { data, error } = await supabase.from('apishopee_scheduled_flash_sales').insert({
             shop_id,
             source_flash_sale_id,
             target_timeslot_id: schedule.timeslot_id,
@@ -414,7 +414,7 @@ serve(async (req) => {
       // Xem danh sách lịch hẹn
       case 'list': {
         const { data, error } = await supabase
-          .from('scheduled_flash_sales')
+          .from('apishopee_scheduled_flash_sales')
           .select('*')
           .eq('shop_id', shop_id)
           .order('scheduled_at', { ascending: true });
@@ -431,7 +431,7 @@ serve(async (req) => {
         const { schedule_id } = params;
         
         const { error } = await supabase
-          .from('scheduled_flash_sales')
+          .from('apishopee_scheduled_flash_sales')
           .delete()
           .eq('id', schedule_id)
           .eq('shop_id', shop_id)
@@ -455,7 +455,7 @@ serve(async (req) => {
         }
 
         const { data, error } = await supabase
-          .from('scheduled_flash_sales')
+          .from('apishopee_scheduled_flash_sales')
           .update({ scheduled_at: new Date(scheduled_at).toISOString() })
           .eq('id', schedule_id)
           .eq('shop_id', shop_id)
@@ -480,7 +480,7 @@ serve(async (req) => {
         
         // Lấy thông tin lịch
         const { data: schedule, error: fetchError } = await supabase
-          .from('scheduled_flash_sales')
+          .from('apishopee_scheduled_flash_sales')
           .select('*')
           .eq('id', schedule_id)
           .eq('status', 'pending')
@@ -493,7 +493,7 @@ serve(async (req) => {
         }
 
         // Đánh dấu đang chạy
-        await supabase.from('scheduled_flash_sales').update({ status: 'running' }).eq('id', schedule_id);
+        await supabase.from('apishopee_scheduled_flash_sales').update({ status: 'running' }).eq('id', schedule_id);
 
         try {
           const result = await executeCopyFlashSale(
@@ -504,7 +504,7 @@ serve(async (req) => {
           );
 
           // Cập nhật kết quả
-          await supabase.from('scheduled_flash_sales').update({
+          await supabase.from('apishopee_scheduled_flash_sales').update({
             status: result.success ? 'completed' : 'failed',
             result_flash_sale_id: result.flashSaleId,
             result_message: result.message,
@@ -514,7 +514,7 @@ serve(async (req) => {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         } catch (err) {
-          await supabase.from('scheduled_flash_sales').update({
+          await supabase.from('apishopee_scheduled_flash_sales').update({
             status: 'failed',
             result_message: (err as Error).message,
           }).eq('id', schedule_id);
@@ -531,7 +531,7 @@ serve(async (req) => {
         
         // Lấy các lịch pending và đã đến giờ
         const { data: pendingSchedules, error } = await supabase
-          .from('scheduled_flash_sales')
+          .from('apishopee_scheduled_flash_sales')
           .select('*')
           .eq('status', 'pending')
           .lte('scheduled_at', now.toISOString())
@@ -545,7 +545,7 @@ serve(async (req) => {
         for (const schedule of pendingSchedules || []) {
           // Đánh dấu đang chạy
           await supabase
-            .from('scheduled_flash_sales')
+            .from('apishopee_scheduled_flash_sales')
             .update({ status: 'running' })
             .eq('id', schedule.id);
 
@@ -559,7 +559,7 @@ serve(async (req) => {
 
             // Cập nhật kết quả
             await supabase
-              .from('scheduled_flash_sales')
+              .from('apishopee_scheduled_flash_sales')
               .update({
                 status: result.success ? 'completed' : 'failed',
                 result_flash_sale_id: result.flashSaleId,
@@ -570,7 +570,7 @@ serve(async (req) => {
             results.push({ id: schedule.id, ...result });
           } catch (err) {
             await supabase
-              .from('scheduled_flash_sales')
+              .from('apishopee_scheduled_flash_sales')
               .update({
                 status: 'failed',
                 result_message: (err as Error).message,

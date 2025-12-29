@@ -37,12 +37,12 @@ serve(async (req) => {
 
     // Check if current user is admin or super_admin using role_id join
     const { data: profile } = await supabaseAdmin
-      .from('profiles')
-      .select('id, roles(name)')
+      .from('sys_profiles')
+      .select('id, sys_roles(name)')
       .eq('id', currentUser.id)
       .single();
 
-    const currentRoleName = (profile?.roles as any)?.name;
+    const currentRoleName = (profile?.sys_roles as any)?.name;
     const isAdmin = currentRoleName === 'admin' || currentRoleName === 'super_admin';
     const isSuperAdmin = currentRoleName === 'super_admin';
 
@@ -104,7 +104,7 @@ serve(async (req) => {
         
         // Get role_id from roles table
         const { data: targetRole } = await supabaseAdmin
-          .from('roles')
+          .from('sys_roles')
           .select('id')
           .eq('name', targetRoleName)
           .single();
@@ -113,7 +113,7 @@ serve(async (req) => {
         
         // Try to update first
         const { error: updateError } = await supabaseAdmin
-          .from('profiles')
+          .from('sys_profiles')
           .update({ 
             full_name: full_name || null,
             role_id: targetRole?.id,
@@ -126,7 +126,7 @@ serve(async (req) => {
           console.log('Profile update failed, trying insert:', updateError);
 
           await supabaseAdmin
-            .from('profiles')
+            .from('sys_profiles')
             .insert({ 
               id: newUser.user.id,
               email: email,
@@ -159,12 +159,12 @@ serve(async (req) => {
 
       // Check target user's role
       const { data: targetProfile } = await supabaseAdmin
-        .from('profiles')
-        .select('id, roles(name)')
+        .from('sys_profiles')
+        .select('id, sys_roles(name)')
         .eq('id', user_id)
         .single();
 
-      const targetRoleName = (targetProfile?.roles as any)?.name;
+      const targetRoleName = (targetProfile?.sys_roles as any)?.name;
       const targetIsAdmin = targetRoleName === 'admin' || targetRoleName === 'super_admin';
 
       // Only super_admin can delete admin/super_admin
@@ -177,13 +177,13 @@ serve(async (req) => {
 
       // 1. Delete shop_members
       await supabaseAdmin
-        .from('shop_members')
+        .from('apishopee_shop_members')
         .delete()
         .eq('user_id', user_id);
 
       // 2. Delete profile
       await supabaseAdmin
-        .from('profiles')
+        .from('sys_profiles')
         .delete()
         .eq('id', user_id);
 

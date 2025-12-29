@@ -25,7 +25,7 @@ export function UserProfileInfo() {
     setLoading(true);
     try {
       const { error } = await supabase
-        .from('profiles')
+        .from('sys_profiles')
         .update({
           full_name: fullName.trim() || null,
           updated_at: new Date().toISOString(),
@@ -96,7 +96,7 @@ export function UserProfileInfo() {
 
       // Update profile with avatar URL
       const { error: updateError } = await supabase
-        .from('profiles')
+        .from('sys_profiles')
         .update({
           avatar_url: publicUrl,
           updated_at: new Date().toISOString(),
