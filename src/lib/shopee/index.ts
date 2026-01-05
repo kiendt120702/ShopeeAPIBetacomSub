@@ -90,6 +90,34 @@ export type {
   CachedFlashSale,
 } from './flash-sale-client';
 
+// Order Client
+export {
+  getOrderList,
+  getAllOrders,
+  getOrderDetail,
+  getOrderDetailBatch,
+} from './order-client';
+export type {
+  OrderStatus,
+  TimeRangeField,
+  GetOrderListParams,
+  GetOrderDetailParams,
+} from './order-client';
+
+// Keyword Client
+export {
+  getRecommendedKeywordList,
+  saveKeywordSearchHistory,
+  getKeywordSearchHistory,
+  deleteKeywordHistory,
+} from './keyword-client';
+export type {
+  SuggestedKeyword,
+  GetRecommendedKeywordListResponse,
+  GetRecommendedKeywordListParams,
+  KeywordSearchHistory,
+} from './keyword-client';
+
 // Types
 export type {
   AccessToken,
@@ -116,5 +144,13 @@ export type {
   EditManualProductAdsParams,
   EditAutoProductAdsParams,
   EditAdsResponse,
+  // Order Types
+  OrderListItem,
+  GetOrderListResponse,
+  OrderItem,
+  RecipientAddress,
+  PackageInfo,
+  OrderDetail,
+  GetOrderDetailResponse,
 } from './types';
 export { CampaignInfoType } from './types';

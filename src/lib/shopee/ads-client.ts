@@ -361,3 +361,260 @@ export function isCacheStale(cachedAt: string, maxAgeMinutes = 5): boolean {
   const now = Date.now();
   return (now - cacheTime) > maxAgeMinutes * 60 * 1000;
 }
+
+// ==================== ADS PERFORMANCE ====================
+
+export interface HourlyPerformance {
+  hour: number;
+  date: string;
+  impression: number;
+  clicks: number;
+  ctr: number;
+  direct_order: number;
+  broad_order: number;
+  direct_conversions: number;
+  broad_conversions: number;
+  direct_item_sold: number;
+  broad_item_sold: number;
+  direct_gmv: number;
+  broad_gmv: number;
+  expense: number;
+  cost_per_conversion: number;
+  direct_roas: number;
+  broad_roas: number;
+}
+
+export interface DailyPerformance {
+  date: string;
+  impression: number;
+  clicks: number;
+  ctr: number;
+  direct_order: number;
+  broad_order: number;
+  direct_conversions: number;
+  broad_conversions: number;
+  direct_item_sold: number;
+  broad_item_sold: number;
+  direct_gmv: number;
+  broad_gmv: number;
+  expense: number;
+  cost_per_conversion: number;
+  direct_roas: number;
+  broad_roas: number;
+}
+
+export interface GetHourlyPerformanceResponse {
+  error?: string;
+  message?: string;
+  request_id?: string;
+  response?: HourlyPerformance[];
+}
+
+export interface GetDailyPerformanceResponse {
+  error?: string;
+  message?: string;
+  request_id?: string;
+  response?: DailyPerformance[];
+}
+
+/**
+ * Lấy hiệu suất quảng cáo theo giờ
+ * @param shopId - Shop ID
+ * @param performanceDate - Ngày cần xem (DD-MM-YYYY)
+ */
+export async function getHourlyPerformance(
+  shopId: number,
+  performanceDate: string
+): Promise<GetHourlyPerformanceResponse> {
+  const { data, error } = await supabase.functions.invoke('shopee-ads', {
+    body: {
+      action: 'get-hourly-performance',
+      shop_id: shopId,
+      performance_date: performanceDate,
+    },
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Failed to get hourly performance');
+  }
+
+  return data as GetHourlyPerformanceResponse;
+}
+
+/**
+ * Lấy hiệu suất quảng cáo theo ngày
+ * @param shopId - Shop ID
+ * @param startDate - Ngày bắt đầu (DD-MM-YYYY)
+ * @param endDate - Ngày kết thúc (DD-MM-YYYY)
+ */
+export async function getDailyPerformance(
+  shopId: number,
+  startDate: string,
+  endDate: string
+): Promise<GetDailyPerformanceResponse> {
+  const { data, error } = await supabase.functions.invoke('shopee-ads', {
+    body: {
+      action: 'get-daily-performance',
+      shop_id: shopId,
+      start_date: startDate,
+      end_date: endDate,
+    },
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Failed to get daily performance');
+  }
+
+  return data as GetDailyPerformanceResponse;
+}
+
+// ==================== CAMPAIGN PERFORMANCE ====================
+
+export interface CampaignMetrics {
+  date: string;
+  impression: number;
+  clicks: number;
+  ctr: number;
+  expense: number;
+  broad_gmv: number;
+  broad_order: number;
+  broad_order_amount: number;
+  broad_roi: number;
+  broad_cir: number;
+  cr: number;
+  cpc: number;
+  direct_order: number;
+  direct_order_amount: number;
+  direct_gmv: number;
+  direct_roi: number;
+  direct_cir: number;
+  direct_cr: number;
+  cpdc: number;
+}
+
+export interface CampaignPerformance {
+  campaign_id: number;
+  ad_type: string;
+  campaign_placement: string;
+  ad_name: string;
+  metrics_list: CampaignMetrics[];
+}
+
+export interface GetCampaignDailyPerformanceResponse {
+  error?: string;
+  message?: string;
+  warning?: string;
+  request_id?: string;
+  response?: Array<{
+    shop_id: number;
+    region: string;
+    campaign_list: CampaignPerformance[];
+  }>;
+}
+
+/**
+ * Lấy hiệu suất từng campaign theo ngày
+ * @param shopId - Shop ID
+ * @param campaignIdList - Danh sách campaign IDs (array hoặc comma-separated string, max 100)
+ * @param startDate - Ngày bắt đầu (DD-MM-YYYY)
+ * @param endDate - Ngày kết thúc (DD-MM-YYYY)
+ */
+export async function getCampaignDailyPerformance(
+  shopId: number,
+  campaignIdList: number[] | string,
+  startDate: string,
+  endDate: string
+): Promise<GetCampaignDailyPerformanceResponse> {
+  const ids = Array.isArray(campaignIdList) ? campaignIdList.join(',') : campaignIdList;
+  
+  const { data, error } = await supabase.functions.invoke('shopee-ads', {
+    body: {
+      action: 'get-campaign-daily-performance',
+      shop_id: shopId,
+      campaign_id_list: ids,
+      start_date: startDate,
+      end_date: endDate,
+    },
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Failed to get campaign daily performance');
+  }
+
+  return data as GetCampaignDailyPerformanceResponse;
+}
+
+
+// ==================== CAMPAIGN HOURLY PERFORMANCE ====================
+
+export interface CampaignHourlyMetrics {
+  hour: number;
+  date: string;
+  impression: number;
+  clicks: number;
+  ctr: number;
+  expense: number;
+  broad_gmv: number;
+  broad_order: number;
+  broad_order_amount: number;
+  broad_roi: number;
+  broad_cir: number;
+  cr: number;
+  cpc: number;
+  direct_order: number;
+  direct_order_amount: number;
+  direct_gmv: number;
+  direct_roi: number;
+  direct_cir: number;
+  direct_cr: number;
+  cpdc: number;
+}
+
+export interface CampaignHourlyPerformance {
+  campaign_id: number;
+  ad_type: string;
+  campaign_placement: string;
+  ad_name: string;
+  metrics_list: CampaignHourlyMetrics[];
+}
+
+export interface GetCampaignHourlyPerformanceResponse {
+  error?: string;
+  message?: string;
+  warning?: string;
+  request_id?: string;
+  response?: Array<{
+    shop_id: number;
+    region: string;
+    campaign_list: CampaignHourlyPerformance[];
+  }>;
+}
+
+/**
+ * Lấy hiệu suất từng campaign theo giờ (single day)
+ * @param shopId - Shop ID
+ * @param campaignIdList - Danh sách campaign IDs (array hoặc comma-separated string, max 100)
+ * @param performanceDate - Ngày cần xem (DD-MM-YYYY)
+ */
+export async function getCampaignHourlyPerformance(
+  shopId: number,
+  campaignIdList: number[] | string,
+  performanceDate: string
+): Promise<GetCampaignHourlyPerformanceResponse> {
+  const ids = Array.isArray(campaignIdList) ? campaignIdList.join(',') : campaignIdList;
+  
+  const { data, error } = await supabase.functions.invoke('shopee-ads', {
+    body: {
+      action: 'get-campaign-hourly-performance',
+      shop_id: shopId,
+      campaign_id_list: ids,
+      performance_date: performanceDate,
+    },
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Failed to get campaign hourly performance');
+  }
+
+  return data as GetCampaignHourlyPerformanceResponse;
+}

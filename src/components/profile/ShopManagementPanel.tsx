@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useToast } from '@/hooks/use-toast';
 import { useShopeeAuth } from '@/hooks/useShopeeAuth';
+import { clearToken } from '@/lib/shopee';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
@@ -178,11 +179,21 @@ export function ShopManagementPanel() {
 
       if (shopError) throw shopError;
 
+      // Clear localStorage nếu đang xóa shop hiện tại
+      if (token?.shop_id === shopToDelete.shop_id) {
+        await clearToken();
+      }
+
       setShops(prev => prev.filter(s => s.shop_id !== shopToDelete.shop_id));
       setDeleteDialogOpen(false);
       setShopToDelete(null);
 
       toast({ title: 'Thành công', description: 'Đã xóa shop' });
+      
+      // Reload page nếu xóa shop đang active
+      if (token?.shop_id === shopToDelete.shop_id) {
+        window.location.reload();
+      }
     } catch (err) {
       toast({
         title: 'Lỗi',

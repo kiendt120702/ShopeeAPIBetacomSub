@@ -23,5 +23,14 @@ export const FlashSalePanel = USE_V2_PANELS ? FlashSalePanelV2 : FlashSalePanelV
 // Admin panels
 export { default as PartnerAccountsPanel } from './PartnerAccountsPanel';
 
+// Product panel
+export { default as ProductPanel } from './ProductPanel';
+
+// Order panel
+export { default as OrderPanel } from './OrderPanel';
+
+// Keyword panel
+export { default as KeywordPanel } from './KeywordPanel';
+
 // Also export individual versions for testing
 export { AdsPanelV1, AdsPanelV2, FlashSalePanelV1, FlashSalePanelV2 };

@@ -11,7 +11,11 @@ import FlashSaleManagerPanel from '@/components/panels/FlashSaleManagerPanel';
 import FlashSalePanel from '@/components/panels/FlashSalePanel';
 import ScheduledPanel from '@/components/panels/ScheduledPanel';
 import AdsPanel from '@/components/panels/AdsPanel';
+import AdsPerformancePanel from '@/components/panels/AdsPerformancePanel';
 import UserProfilePanel from '@/components/panels/UserProfilePanel';
+import ProductPanel from '@/components/panels/ProductPanel';
+import OrderPanel from '@/components/panels/OrderPanel';
+import KeywordPanel from '@/components/panels/KeywordPanel';
 import { UserProfileInfo } from '@/components/profile/UserProfileInfo';
 import { UserManagementPanel } from '@/components/profile/UserManagementPanel';
 import { ShopManagementPanel } from '@/components/profile/ShopManagementPanel';
@@ -20,7 +24,7 @@ import AuthPage from '@/pages/Auth';
 import { cn } from '@/lib/utils';
 import { ShopConnectionDialog } from '@/components/profile/ShopConnectionDialog';
 
-type MenuId = 'dashboard' | 'flash-sale' | 'flash-sale-list' | 'flash-sale-schedule' | 'ads' | 'ads-budget' | 'ads-manage' | 'profile' | 'profile-info' | 'profile-users' | 'profile-shops';
+type MenuId = 'dashboard' | 'flash-sale' | 'flash-sale-list' | 'flash-sale-schedule' | 'ads' | 'ads-manage' | 'ads-performance' | 'ads-budget' | 'keywords' | 'keywords-search' | 'keywords-tracking' | 'products' | 'orders' | 'profile' | 'profile-info' | 'profile-users' | 'profile-shops';
 
 interface MenuItem {
   id: MenuId;
@@ -65,7 +69,56 @@ const menuItems: MenuItem[] = [
     path: '/ads',
     label: 'Quảng cáo', 
     icon: <AdsIcon />,
-    description: 'Quản lý chiến dịch quảng cáo'
+    description: 'Quản lý chiến dịch quảng cáo',
+    children: [
+      {
+        id: 'ads-manage',
+        path: '/ads',
+        label: 'Quản lý',
+        icon: <AdsIcon />,
+      },
+      {
+        id: 'ads-performance',
+        path: '/ads/performance',
+        label: 'Hiệu suất',
+        icon: <ChartIcon />,
+      },
+    ]
+  },
+  { 
+    id: 'keywords',
+    path: '/keywords',
+    label: 'Từ khóa', 
+    icon: <KeywordIcon />,
+    description: 'Tra cứu dung lượng từ khóa',
+    children: [
+      {
+        id: 'keywords-search',
+        path: '/keywords',
+        label: 'Tra cứu',
+        icon: <SearchIcon />,
+      },
+      {
+        id: 'keywords-tracking',
+        path: '/keywords/tracking',
+        label: 'Theo dõi',
+        icon: <StarIcon />,
+      },
+    ]
+  },
+  { 
+    id: 'products',
+    path: '/products',
+    label: 'Sản phẩm', 
+    icon: <ProductIcon />,
+    description: 'Quản lý sản phẩm'
+  },
+  { 
+    id: 'orders',
+    path: '/orders',
+    label: 'Đơn hàng', 
+    icon: <OrderIcon />,
+    description: 'Quản lý đơn hàng'
   },
   { 
     id: 'profile',
@@ -142,9 +195,53 @@ function AdsIcon() {
   );
 }
 
+function ChartIcon() {
+  return (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+    </svg>
+  );
+}
 
+function KeywordIcon() {
+  return (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
+    </svg>
+  );
+}
 
+function SearchIcon() {
+  return (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+    </svg>
+  );
+}
 
+function StarIcon() {
+  return (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+    </svg>
+  );
+}
+
+function ProductIcon() {
+  return (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+    </svg>
+  );
+}
+
+function OrderIcon() {
+  return (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+    </svg>
+  );
+}
 
 function UserIcon() {
   return (
@@ -621,7 +718,7 @@ const Index = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showAddShopDialog, setShowAddShopDialog] = useState(false);
-  const [expandedMenus, setExpandedMenus] = useState<string[]>(['flash-sale', 'ads']);
+  const [expandedMenus, setExpandedMenus] = useState<string[]>(['flash-sale', 'ads', 'keywords']);
 
   const isShopConnected = !!token?.shop_id;
   
@@ -699,8 +796,18 @@ const Index = () => {
         return <ScheduledPanel />;
       case 'ads':
       case 'ads-manage':
-      case 'ads-budget':
         return <AdsPanel />;
+      case 'ads-performance':
+        return <AdsPerformancePanel />;
+      case 'keywords':
+      case 'keywords-search':
+        return <KeywordPanel initialTab="search" />;
+      case 'keywords-tracking':
+        return <KeywordPanel initialTab="tracking" />;
+      case 'products':
+        return <ProductPanel />;
+      case 'orders':
+        return <OrderPanel />;
       default:
         return <DashboardPanel onNavigate={handleNavigate} />;
     }
