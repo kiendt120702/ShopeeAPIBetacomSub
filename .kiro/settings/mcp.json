@@ -17,9 +17,7 @@
         "deploy_edge_function",
         "list_edge_functions",
         "list_migrations",
-        "list_extensions",
-        "get_project_url",
-        "search_docs"
+        "list_extensions"
       ]
     }
   }

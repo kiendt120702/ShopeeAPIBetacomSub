@@ -55,6 +55,9 @@ export default function ScheduledPanel() {
   const [schedules, setSchedules] = useState<ScheduledItem[]>([]);
   const [filterStatus, setFilterStatus] = useState<string>('all');
   
+  // Check shop connected (có shop_id là được, không cần check error)
+  const isShopConnected = !!token?.shop_id;
+  
   // Edit dialog state
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<ScheduledItem | null>(null);
@@ -249,18 +252,18 @@ export default function ScheduledPanel() {
   };
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isShopConnected) {
       fetchSchedules();
     }
-  }, [isAuthenticated, token?.shop_id]);
+  }, [isShopConnected, token?.shop_id]);
 
   // Auto refresh (silent - không hiện loading)
   useEffect(() => {
     const interval = setInterval(() => {
-      if (isAuthenticated) fetchSchedules(false);
+      if (isShopConnected) fetchSchedules(false);
     }, 30000);
     return () => clearInterval(interval);
-  }, [isAuthenticated]);
+  }, [isShopConnected]);
 
   const pendingCount = schedules.filter(s => s.status === 'pending').length;
   const completedCount = schedules.filter(s => s.status === 'completed').length;
@@ -335,7 +338,7 @@ export default function ScheduledPanel() {
             <Button 
               className="bg-gradient-to-r from-violet-500 to-purple-500 hover:from-violet-600 hover:to-purple-600" 
               onClick={handleProcessNow} 
-              disabled={processing || pendingCount === 0 || !isAuthenticated}
+              disabled={processing || pendingCount === 0 || !isShopConnected}
             >
               {processing ? 'Đang chạy...' : 'Chạy ngay'}
             </Button>
@@ -349,7 +352,7 @@ export default function ScheduledPanel() {
         <div className="h-full overflow-auto bg-white">
           {authLoading || loading ? (
             <LoadingState />
-          ) : !isAuthenticated ? (
+          ) : !isShopConnected ? (
             <div className="h-full flex items-center justify-center">
               <p className="text-slate-500">Vui lòng kết nối Shopee để tiếp tục</p>
             </div>

@@ -18,8 +18,8 @@ const Privacy = () => {
             <h2 className="text-xl font-semibold text-gray-900 mb-3">1. Giới thiệu</h2>
             <p>
               Betacom Agency ("chúng tôi") cam kết bảo vệ quyền riêng tư của bạn. Chính sách bảo mật này 
-              giải thích cách chúng tôi thu thập, sử dụng và bảo vệ thông tin cá nhân của bạn khi bạn 
-              sử dụng dịch vụ tại ops.betacom.agency cho cả Shopee và TikTok Shop.
+              giải thích cách chúng tôi xử lý thông tin khi bạn sử dụng dịch vụ tại ops.betacom.agency 
+              cho cả Shopee và TikTok Shop.
             </p>
           </section>
 
@@ -27,8 +27,8 @@ const Privacy = () => {
             <h2 className="text-xl font-semibold text-gray-900 mb-3">2. Thông tin chúng tôi thu thập</h2>
             <p>
               Chúng tôi <strong>không thu thập</strong> bất kỳ dữ liệu cá nhân nào của bạn. Dịch vụ của chúng tôi 
-              hoạt động mà không cần lưu trữ thông tin người dùng. Mọi dữ liệu từ Shopee và TikTok Shop được xử lý trực tiếp 
-              thông qua API và không được lưu trữ trên hệ thống của chúng tôi.
+              hoạt động mà không cần lưu trữ thông tin người dùng. Mọi dữ liệu từ Shopee và TikTok Shop được xử lý 
+              trực tiếp thông qua API và không được lưu trữ trên hệ thống của chúng tôi.
             </p>
           </section>
 

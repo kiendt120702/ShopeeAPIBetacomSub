@@ -25,12 +25,7 @@ const App = () => (
             <Route path="/flash-sale" element={<Index />} />
             <Route path="/flash-sale/schedule" element={<Index />} />
             <Route path="/ads" element={<Index />} />
-            <Route path="/ads/performance" element={<Index />} />
             <Route path="/ads/budget" element={<Index />} />
-            <Route path="/keywords" element={<Index />} />
-            <Route path="/keywords/tracking" element={<Index />} />
-            <Route path="/products" element={<Index />} />
-            <Route path="/orders" element={<Index />} />
             <Route path="/profile" element={<Index />} />
             <Route path="/profile/users" element={<Index />} />
             <Route path="/profile/shops" element={<Index />} />
